@@ -30,6 +30,10 @@ Page({
         label: "个人主页",
         path: "/pages/info/userInfo/userInfo",
       }, {
+        icon: "/pages/public/images/info/btn/reward.svg",
+        label: "喂食打卡",
+        path: "/pages/feed/feedHub/feedHub",
+      }, {
         icon: "/pages/public/images/info/btn/badge.svg",
         label: "徽章口袋",
         path: "/pages/packageA/pages/info/badge/badge",
@@ -88,6 +92,17 @@ Page({
             path: "/pages/manage/checkPhotos/checkPhotos",
             num: "numChkPhotos",
             icon: "icon-photo-o"
+          },
+          {
+            name: "领养审核",
+            path: "/pages/manage/checkAdoption/checkAdoption",
+            num: "numChkAdoptions",
+            icon: "icon-home-o"
+          },
+          {
+            name: "喂食设置",
+            path: "/pages/manage/feedSettings/feedSettings",
+            icon: "icon-balance-o"
           },
           {
             name: "便利贴审核",
@@ -236,12 +251,21 @@ Page({
     const { result: numFeedbacks } = await app.mpServerless.db.collection('feedback').count({ dealed: false });
     const { result: numImProcess } = await app.mpServerless.db.collection('photo').count(imProcessQf);
     const { result: numMapAccessApps } = await app.mpServerless.db.collection('user').count({ 'mapAccess.status': 'pending' });
+    // 待审核领养申请（集合可能尚未创建，容错处理）
+    let numChkAdoptions = 0;
+    try {
+      const { result } = await app.mpServerless.db.collection('adoption').count({ status: 'pending' });
+      numChkAdoptions = result;
+    } catch (err) {
+      console.log('[onShow] - adoption集合尚未创建');
+    }
     this.setData({
       "nums.numChkPhotos": numChkPhotos,
       "nums.numChkComments": numChkComments,
       "nums.numFeedbacks": numFeedbacks,
       "nums.numImProcess": numImProcess,
       "nums.numMapAccessApps": numMapAccessApps,
+      "nums.numChkAdoptions": numChkAdoptions,
       "showCond.manager": true,
     });
   },

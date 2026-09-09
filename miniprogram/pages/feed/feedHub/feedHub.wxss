@@ -1,0 +1,140 @@
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+}
+
+.summary-bar {
+  background: #fff7e6;
+  color: #d46b08;
+  font-size: 24rpx;
+  text-align: center;
+  padding: 16rpx 0;
+}
+
+.campus-tabs {
+  display: flex;
+  white-space: nowrap;
+  background: #fff;
+  padding: 20rpx 30rpx;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.campus-tab {
+  display: inline-block;
+  font-size: 28rpx;
+  color: #666;
+  padding: 12rpx 32rpx;
+  border-radius: 32rpx;
+  margin-right: 20rpx;
+  background: #f5f5f5;
+}
+
+.campus-tab.active {
+  background: #fa8c16;
+  color: #fff;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  font-size: 28rpx;
+  padding: 100rpx 0;
+}
+
+.area-section {
+  margin: 24rpx 30rpx 0;
+  background: #fff;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.area-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  background: #fafafa;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.area-name {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.area-today {
+  font-size: 22rpx;
+  color: #52c41a;
+}
+
+.area-today.none {
+  color: #f5222d;
+}
+
+.cat-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid #f7f7f7;
+}
+
+.cat-row:last-child {
+  border-bottom: none;
+}
+
+.cat-avatar {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: #eee;
+  flex-shrink: 0;
+}
+
+.cat-info {
+  flex: 1;
+  margin-left: 20rpx;
+}
+
+.cat-name {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #333;
+}
+
+.cat-today {
+  font-size: 22rpx;
+  color: #52c41a;
+  margin-top: 6rpx;
+}
+
+.cat-today.none {
+  color: #bbb;
+}
+
+.checkin-btns {
+  display: flex;
+  flex-direction: column;
+}
+
+.mini-btn {
+  font-size: 24rpx;
+  padding: 8rpx 28rpx;
+  border-radius: 28rpx;
+  margin: 6rpx 0;
+  text-align: center;
+}
+
+.mini-btn.meal {
+  background: #fff7e6;
+  color: #fa8c16;
+  border: 1rpx solid #ffd591;
+}
+
+.mini-btn.snack {
+  background: #fff0f6;
+  color: #eb2f96;
+  border: 1rpx solid #ffadd2;
+}

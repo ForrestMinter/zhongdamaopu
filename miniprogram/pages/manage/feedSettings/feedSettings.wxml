@@ -1,0 +1,44 @@
+<!-- 喂食设置：打卡地点 + 食物类型 -->
+<block wx:if="{{auth}}">
+  <view class="page">
+    <!-- 打卡地点 -->
+    <view class="section">
+      <view class="section-title">打卡地点</view>
+      <view class="section-desc">用户在打卡时从列表中选择地点，建议按校区习惯命名，如「图书馆后草坪」。</view>
+
+      <view class="tag-list">
+        <view class="tag" wx:for="{{locations}}" wx:key="*this">
+          {{item}}
+          <view class="tag-close" bindtap="removeLocation" data-location="{{item}}">×</view>
+        </view>
+        <view class="empty-tip" wx:if="{{!loading && locations.length === 0}}">还没有设置地点，用户打卡时需手动输入</view>
+      </view>
+
+      <view class="add-row">
+        <input class="add-input" placeholder="新地点名称" value="{{newLocation}}" data-field="newLocation" bindinput="onInput" confirm-type="done" bindconfirm="addLocation" />
+        <button class="add-btn" size="mini" bindtap="addLocation">添加</button>
+      </view>
+    </view>
+
+    <!-- 食物类型 -->
+    <view class="section">
+      <view class="section-title">食物类型</view>
+      <view class="section-desc">打卡时「喂了什么」的可选类型，默认为猫粮、罐头、猫条、冻干等。已有打卡记录使用的类型无法删除。</view>
+
+      <view class="tag-list">
+        <view class="tag snack" wx:for="{{snackTypes}}" wx:key="*this">
+          {{item}}
+          <view class="tag-close" bindtap="removeSnackType" data-type="{{item}}">×</view>
+        </view>
+      </view>
+
+      <view class="add-row">
+        <input class="add-input" placeholder="新食物类型，如：猫草" value="{{newSnackType}}" data-field="newSnackType" bindinput="onInput" confirm-type="done" bindconfirm="addSnackType" />
+        <button class="add-btn snack-btn" size="mini" bindtap="addSnackType">添加</button>
+      </view>
+    </view>
+  </view>
+</block>
+
+<!-- 未授权提示 -->
+<no-auth wx:else tip-text="{{tipText}}"></no-auth>

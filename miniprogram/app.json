@@ -44,7 +44,15 @@
     "pages/info/dashboard/dashboard",
     "pages/genealogy/detailCat/relationGraph/relationGraph",
     "pages/genealogy/applyMapAccess/applyMapAccess",
-    "pages/map/index/index"
+    "pages/map/index/index",
+    "pages/adoption/applyAdoption/applyAdoption",
+    "pages/info/myAdoption/myAdoption",
+    "pages/manage/checkAdoption/checkAdoption",
+    "pages/manage/medicalManage/medicalManage",
+    "pages/feed/feedRecord/feedRecord",
+    "pages/feed/feedHub/feedHub",
+    "pages/manage/feedSettings/feedSettings",
+    "pages/info/myFootprint/myFootprint"
   ],
   "subPackages": [
     {

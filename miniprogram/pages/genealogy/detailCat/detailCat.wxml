@@ -59,6 +59,13 @@
         <view class='iconfont icon-qrcode'></view>
       </view>
     </view>
+
+    <!-- 领养横幅：寻找领养中时展示 -->
+    <view class="adopt-banner" wx:if="{{cat.adopt === 2}}" bindtap="toApplyAdoption">
+      <view class="adopt-banner-icon iconfont icon-home-o"></view>
+      <view class="adopt-banner-text">我正在寻找一个新家，点击申请领养</view>
+      <view class="adopt-banner-arrow">→</view>
+    </view>
     <view class='details'>
 
       <!-- 基本信息 -->
@@ -160,6 +167,54 @@
               <text>{{cat.lastVaccine.vaccine_date_formatted}}</text>
             </view>
           </view>
+        </view>
+      </view>
+
+      <!-- 医疗记录 -->
+      <view class="card" wx:if="{{medicalTimeline.length || is_manager}}">
+        <view class="card-header">
+          <view class="card-title">
+            <view class="iconfont icon-description"></view>
+            医疗记录
+          </view>
+          <view class="badge-all" bindtap="toMedicalDetail" wx:if="{{medicalTimeline.length}}">查看时间线</view>
+          <view class="badge-all" bindtap="toMedicalManage" wx:if="{{is_manager}}">管理</view>
+        </view>
+
+        <view class='item long' wx:if="{{medicalTimeline.length}}">
+          <view class="latest-vaccine">
+            <view class="iconfont icon-success"></view>
+            <view class='value vaccine-info'>
+              <text>{{medicalTypeName[medicalTimeline[0].type]}}·{{medicalTimeline[0].title}}</text>
+              <text>{{medicalTimeline[0].record_date_formatted}}</text>
+            </view>
+          </view>
+        </view>
+        <view class='item long' wx:else>
+          <view class='value' style="color:#999;font-size:26rpx;">暂无医疗记录</view>
+        </view>
+      </view>
+
+      <!-- 喂食动态 -->
+      <view class="card" wx:if="{{feedStats}}">
+        <view class="card-header">
+          <view class="card-title">
+            <view class="iconfont icon-balance-o"></view>
+            喂食动态
+          </view>
+          <view class="badge-all" bindtap="toFeedRecord">打卡</view>
+        </view>
+
+        <view class='item long'>
+          <view class="latest-vaccine">
+            <view class='value vaccine-info'>
+              <text>共打卡 {{feedStats.total}} 次</text>
+              <text>近7天 {{feedStats.last7d}} 次 · 近30天 {{feedStats.last30d}} 次</text>
+            </view>
+          </view>
+        </view>
+        <view class='item long' bindtap="toFeedHub">
+          <view class='value' style="color:#576b95;font-size:26rpx;">按地区查看今日打卡情况 →</view>
         </view>
       </view>
 
@@ -286,6 +341,10 @@
         <image class="icon {{followedCat ? 'gray' : ''}}" src='/pages/public/images/button/follow.svg'></image>
         <view class="button-text">{{followedCat ? "取消关注" : "关注动态"}}</view>
       </view>
+      <view class="button" bindtap='toFeedRecord'>
+        <image class="icon" src='/pages/public/images/button/heart.png'></image>
+        <view class="button-text">喂食打卡</view>
+      </view>
       <view class="button" bindtap='bindTapFeedback'>
         <image class="icon" src='/pages/public/images/button/flag.svg'></image>
         <view class="button-text">{{text_cfg.detail_cat.button_feedback}}</view>
@@ -342,6 +401,36 @@
           </view>
         </view>
       </view>
+    </scroll-view>
+  </view>
+</popup>
+
+<!-- 医疗记录时间线弹出层 -->
+<popup show="{{showMedicalHistory}}" position="center" bind:close="hideMedicalHistory">
+  <view class="modal-content-wrapper">
+    <view class="modal-header">
+      <text>{{cat.name}}的医疗时间线</text>
+      <view class="modal-close" bindtap="hideMedicalHistory">×</view>
+    </view>
+    <scroll-view class="modal-body" scroll-y="1">
+      <view class="vaccine-timeline" wx:if="{{medicalTimeline && medicalTimeline.length}}">
+        <view class="timeline-item" wx:for="{{medicalTimeline}}" wx:key="_id">
+          <view class="timeline-icon {{index === 0 ? 'iconfont icon-success' : 'timeline-dot'}}"></view>
+          <view class="timeline-connector" wx:if="{{index !== medicalTimeline.length - 1}}"></view>
+          <view class="timeline-content {{index === 0 ? 'first-card' : ''}}">
+            <view class="timeline-header">
+              <view class="timeline-title">{{medicalTypeName[item.type]}}·{{item.title}}</view>
+              <view class="timeline-date">{{item.record_date_formatted}}</view>
+            </view>
+            <view class="timeline-body">
+              <view class="timeline-info" wx:if="{{item.hospital}}">医院/地点：{{item.hospital}}</view>
+              <view class="timeline-info" wx:if="{{item.next_vaccine_date_formatted}}">下次接种：{{item.next_vaccine_date_formatted}}</view>
+              <view class="timeline-info" wx:if="{{item.description}}">{{item.description}}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+      <view wx:else style="text-align:center;color:#999;padding:60rpx 0;">暂无医疗记录</view>
     </scroll-view>
   </view>
 </popup>

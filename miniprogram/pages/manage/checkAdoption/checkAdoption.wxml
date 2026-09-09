@@ -1,0 +1,55 @@
+<!-- 领养申请审核 -->
+<view class="page">
+  <view class="tabs">
+    <view class="tab {{activeTab === item.key ? 'active' : ''}}" wx:for="{{tabs}}" wx:key="key" data-key="{{item.key}}" bindtap="switchTab">{{item.name}}</view>
+  </view>
+
+  <view class="empty" wx:if="{{!loading && list.length === 0}}">暂无{{statusDesc[activeTab]}}的申请</view>
+
+  <view class="adoption-card" wx:for="{{list}}" wx:key="_id">
+    <view class="card-header">
+      <view class="cat-name" bindtap="toCatDetail" data-cat_id="{{item.cat_id}}">{{item.cat_name}} →</view>
+      <view class="apply-time">{{item.apply_time_formatted}}</view>
+    </view>
+
+    <view class="info-row">
+      <text class="info-label">申请人：</text>
+      <text>{{item.applicant_name}}</text>
+    </view>
+    <view class="info-row">
+      <text class="info-label">联系方式：</text>
+      <text class="contact" bindtap="copyContact" data-contact="{{item.contact}}">{{item.contact}}（点击复制）</text>
+    </view>
+    <view class="reason">{{item.reason}}</view>
+
+    <view class="review-info" wx:if="{{item.status !== 'pending'}}">
+      <view class="info-row">
+        <text class="info-label">审核时间：</text>
+        <text>{{item.review_time_formatted}}</text>
+      </view>
+      <view class="info-row" wx:if="{{item.review_note}}">
+        <text class="info-label">审核备注：</text>
+        <text>{{item.review_note}}</text>
+      </view>
+    </view>
+
+    <view class="actions" wx:if="{{item.status === 'pending' || item.status === 'reviewing'}}">
+      <button class="btn-reject" size="mini" bindtap="openReview" data-action="reject" data-index="{{index}}">拒绝</button>
+      <button wx:if="{{item.status === 'pending'}}" class="btn-processing" size="mini" bindtap="openReview" data-action="processing" data-index="{{index}}">开始审核</button>
+      <button class="btn-approve" size="mini" bindtap="openReview" data-action="approve" data-index="{{index}}">通过</button>
+    </view>
+  </view>
+
+  <!-- 审核备注弹窗 -->
+  <view class="modal-mask" wx:if="{{showReviewModal}}" bindtap="closeReview">
+    <view class="modal" catchtap="">
+      <view class="modal-title">{{reviewAction === 'approve' ? '通过申请' : (reviewAction === 'processing' ? '开始审核' : '拒绝申请')}}</view>
+      <view class="modal-desc" wx:if="{{reviewTarget}}">申请人：{{reviewTarget.applicant_name}} → {{reviewTarget.cat_name}}</view>
+      <textarea class="modal-textarea" placeholder="审核备注（可选，申请人可见）" value="{{reviewNote}}" bindinput="onNoteInput" maxlength="200"></textarea>
+      <view class="modal-buttons">
+        <button class="modal-btn cancel" bindtap="closeReview">取消</button>
+        <button class="modal-btn confirm" bindtap="confirmReview">确认</button>
+      </view>
+    </view>
+  </view>
+</view>

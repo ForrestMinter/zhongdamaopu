@@ -93,6 +93,14 @@ image {
   background-color: var(--color-primary);
   color: white;
 }
+.button.transfer {
+  color: #722ed1;
+}
+.button.transfer.marked {
+  border-color: #531dab;
+  background-color: #722ed1;
+  color: white;
+}
 
 .label {
   font-size: 24rpx;

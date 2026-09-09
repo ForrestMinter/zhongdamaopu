@@ -156,6 +156,40 @@ module.exports = async (ctx) => {
         photo_watermark: ''
       }
     });
+  } else if (opType == 'transfer') {
+    // 转移照片到另一只猫
+    const target_cat_id = ctx.args.target_cat_id;
+    if (!target_cat_id) {
+      return "empty target_cat_id";
+    }
+    if (photo.cat_id === target_cat_id) {
+      return "same cat";
+    }
+
+    // 校验目标猫存在
+    const { result: targetCat } = await ctx.mpserverless.db.collection('cat').findOne({
+      _id: target_cat_id
+    });
+    if (!targetCat || targetCat.deleted === 1) {
+      return "target cat not found";
+    }
+
+    const source_cat_id = photo.cat_id;
+    await ctx.mpserverless.db.collection('photo').updateOne({
+      _id: photo._id
+    }, {
+      $set: {
+        cat_id: target_cat_id,
+        manager: ctx.args.openid
+      }
+    });
+
+    // 重新计算两只猫的精选照片数量
+    await recountBestPhotos(source_cat_id);
+    await recountBestPhotos(target_cat_id);
+
+    // 更新目标猫的最新照片时间
+    await updateMphoto(target_cat_id);
   } else if (opType == 'setProcess') {
     // 修改数据库中记录的压缩图、水印图的URL
     const compressed = ctx.args.compressed;

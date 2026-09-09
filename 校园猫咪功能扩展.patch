@@ -1,0 +1,4576 @@
+diff --git a/functionsEMAS/unionOp/adoptionOp.js b/functionsEMAS/unionOp/adoptionOp.js
+new file mode 100644
+index 0000000..d69cd10
+--- /dev/null
++++ b/functionsEMAS/unionOp/adoptionOp.js
+@@ -0,0 +1,257 @@
++// 领养流程：申请、审核、状态跟踪
++const { createInternalCtx } = require('./_helper.js')
++const isManagerHandler = require('./isManager.js')
++
++// 状态说明：
++// pending   待审核
++// approved  已通过（猫咪标记为已领养）
++// rejected  已拒绝
++// cancelled 已撤销（申请人主动撤销）
++
++module.exports = async (ctx) => {
++  const openid = ctx.args.openid
++  if (!openid) {
++    return { msg: '未登录', result: false }
++  }
++  const operation = ctx.args.operation
++  const db = ctx.mpserverless.db
++
++  // 提交领养申请（普通用户）
++  if (operation === 'apply') {
++    const { cat_id, applicant_name, contact, reason } = ctx.args.data || {}
++    if (!cat_id || !applicant_name || !contact || !reason) {
++      return { msg: '缺少必要字段（猫咪、姓名、联系方式、申请理由）', result: false }
++    }
++
++    // 校验猫咪存在且处于"寻找领养中"
++    const { result: cat } = await db.collection('cat').findOne({ _id: cat_id })
++    if (!cat || cat.deleted === 1) {
++      return { msg: '猫咪不存在', result: false }
++    }
++    if (cat.adopt !== 2) {
++      return { msg: '这只猫猫目前不在寻找领养中', result: false }
++    }
++
++    // 防止重复提交待审核申请
++    const { result: existCount } = await db.collection('adoption').count({
++      cat_id: cat_id,
++      applicant_openid: openid,
++      status: 'pending'
++    })
++    if (existCount > 0) {
++      return { msg: '你已提交过申请，请耐心等待审核', result: false }
++    }
++
++    const now = new Date()
++    const adoptionData = {
++      cat_id: cat_id,
++      cat_name: cat.name || '',
++      applicant_openid: openid,
++      applicant_name: applicant_name,
++      contact: contact,
++      reason: reason,
++      status: 'pending',
++      apply_time: now,
++      review_time: null,
++      reviewer_openid: null,
++      review_note: '',
++      timeline: [{
++        status: 'pending',
++        time: now,
++        note: '提交领养申请',
++        operator: openid
++      }],
++      created_at: now,
++      updated_at: now
++    }
++
++    try {
++      const { result } = await db.collection('adoption').insertOne(adoptionData)
++      return { msg: '申请已提交，请等待管理员审核', result: true, data: result }
++    } catch (error) {
++      return { msg: '提交失败', error, result: false }
++    }
++  }
++
++  // 我的申请列表（普通用户）
++  if (operation === 'listMine') {
++    try {
++      const { result: list } = await db.collection('adoption').find({
++        applicant_openid: openid
++      }, {
++        sort: { apply_time: -1 },
++        limit: 100
++      })
++      return { msg: '获取成功', result: true, data: list }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 撤销申请（申请人本人，仅待审核状态可撤销）
++  if (operation === 'cancel') {
++    const adoption_id = ctx.args.adoption_id
++    if (!adoption_id) {
++      return { msg: '缺少申请ID', result: false }
++    }
++    const { result: adoption } = await db.collection('adoption').findOne({ _id: adoption_id })
++    if (!adoption) {
++      return { msg: '申请不存在', result: false }
++    }
++    if (adoption.applicant_openid !== openid) {
++      return { msg: '只能撤销自己的申请', result: false }
++    }
++    if (adoption.status !== 'pending') {
++      return { msg: '当前状态不可撤销', result: false }
++    }
++
++    const now = new Date()
++    const timeline = adoption.timeline || []
++    timeline.push({
++      status: 'cancelled',
++      time: now,
++      note: '申请人撤销申请',
++      operator: openid
++    })
++
++    try {
++      await db.collection('adoption').updateOne({ _id: adoption_id }, {
++        $set: { status: 'cancelled', timeline: timeline, updated_at: now }
++      })
++      return { msg: '已撤销', result: true }
++    } catch (error) {
++      return { msg: '撤销失败', error, result: false }
++    }
++  }
++
++  // 领养申请列表（管理员，可按状态/猫咪筛选）
++  if (operation === 'list') {
++    const is_manager = await isManagerHandler(createInternalCtx(ctx, {
++      openid: openid,
++      req: 1
++    }))
++    if (!is_manager) {
++      return { msg: 'not a manager', result: false }
++    }
++
++    const query = {}
++    if (ctx.args.status) {
++      query.status = ctx.args.status
++    }
++    if (ctx.args.cat_id) {
++      query.cat_id = ctx.args.cat_id
++    }
++
++    try {
++      const { result: list } = await db.collection('adoption').find(query, {
++        sort: { apply_time: -1 },
++        limit: 200
++      })
++      return { msg: '获取成功', result: true, data: list }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 待审核申请数量（管理员）
++  if (operation === 'countPending') {
++    const is_manager = await isManagerHandler(createInternalCtx(ctx, {
++      openid: openid,
++      req: 1
++    }))
++    if (!is_manager) {
++      return { msg: 'not a manager', result: false }
++    }
++    try {
++      const { result: count } = await db.collection('adoption').count({ status: 'pending' })
++      return { msg: '获取成功', result: true, data: count }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 审核申请（管理员）
++  if (operation === 'review') {
++    const is_manager = await isManagerHandler(createInternalCtx(ctx, {
++      openid: openid,
++      req: 2
++    }))
++    if (!is_manager) {
++      return { msg: 'not a manager', result: false }
++    }
++
++    const { adoption_id, action, note } = ctx.args
++    if (!adoption_id || (action !== 'approve' && action !== 'reject')) {
++      return { msg: '参数错误', result: false }
++    }
++
++    const { result: adoption } = await db.collection('adoption').findOne({ _id: adoption_id })
++    if (!adoption) {
++      return { msg: '申请不存在', result: false }
++    }
++    if (adoption.status !== 'pending') {
++      return { msg: '该申请已被处理', result: false }
++    }
++
++    const now = new Date()
++    const newStatus = action === 'approve' ? 'approved' : 'rejected'
++    const timeline = adoption.timeline || []
++    timeline.push({
++      status: newStatus,
++      time: now,
++      note: note || (action === 'approve' ? '审核通过' : '审核未通过'),
++      operator: openid
++    })
++
++    try {
++      await db.collection('adoption').updateOne({ _id: adoption_id }, {
++        $set: {
++          status: newStatus,
++          review_time: now,
++          reviewer_openid: openid,
++          review_note: note || '',
++          timeline: timeline,
++          updated_at: now
++        }
++      })
++
++      // 审核通过：猫咪标记为已领养，同猫其他待审核申请自动拒绝
++      if (action === 'approve') {
++        await db.collection('cat').updateOne({ _id: adoption.cat_id }, {
++          $set: { adopt: 1 }
++        })
++
++        const { result: others } = await db.collection('adoption').find({
++          cat_id: adoption.cat_id,
++          status: 'pending',
++          _id: { $ne: adoption_id }
++        })
++        for (const other of (others || [])) {
++          const otherTimeline = other.timeline || []
++          otherTimeline.push({
++            status: 'rejected',
++            time: now,
++            note: '该猫猫已被其他申请人领养',
++            operator: openid
++          })
++          await db.collection('adoption').updateOne({ _id: other._id }, {
++            $set: {
++              status: 'rejected',
++              review_time: now,
++              reviewer_openid: openid,
++              review_note: '该猫猫已被其他申请人领养',
++              timeline: otherTimeline,
++              updated_at: now
++            }
++          })
++        }
++      }
++
++      return { msg: action === 'approve' ? '已通过，猫咪标记为已领养' : '已拒绝', result: true }
++    } catch (error) {
++      return { msg: '审核操作失败', error, result: false }
++    }
++  }
++
++  return { msg: '未知操作', result: false }
++}
+diff --git a/functionsEMAS/unionOp/feedOp.js b/functionsEMAS/unionOp/feedOp.js
+new file mode 100644
+index 0000000..8213935
+--- /dev/null
++++ b/functionsEMAS/unionOp/feedOp.js
+@@ -0,0 +1,364 @@
++// 喂食打卡：分地区、自定义地点、喂食/零食分类、统计
++const { createInternalCtx } = require('./_helper.js')
++const isManagerHandler = require('./isManager.js')
++
++// 喂食类别：meal 喂食 / snack 零食
++const FEED_CATEGORIES = ['meal', 'snack']
++
++// 默认零食类型（管理员可在 setting 集合中自定义）
++const DEFAULT_SNACK_TYPES = ['猫条', '罐头', '冻干']
++
++async function checkManager(ctx, openid, req) {
++  return await isManagerHandler(createInternalCtx(ctx, {
++    openid: openid,
++    req: req
++  }))
++}
++
++// 读取 setting 文档（不存在时返回 null）
++async function getSetting(db, id) {
++  const { result } = await db.collection('setting').findOne({ _id: id })
++  return result || null
++}
++
++// 写入 setting 文档（不存在则新建，与 initVaccineTypes 同一模式）
++async function saveSetting(db, id, data) {
++  const existing = await getSetting(db, id)
++  if (!existing) {
++    await db.collection('setting').insertOne({ _id: id, ...data })
++  } else {
++    await db.collection('setting').updateOne({ _id: id }, { $set: data })
++  }
++}
++
++module.exports = async (ctx) => {
++  const openid = ctx.args.openid
++  if (!openid) {
++    return { msg: '未登录', result: false }
++  }
++  const operation = ctx.args.operation
++  const db = ctx.mpserverless.db
++
++  // ========== 地点与零食类型（所有用户可读） ==========
++
++  // 获取自定义打卡地点列表
++  if (operation === 'getLocations') {
++    try {
++      const setting = await getSetting(db, 'feed_location')
++      return { msg: '获取成功', result: true, data: (setting && setting.locations) || [] }
++    } catch (error) {
++      // 文档不存在时返回空列表
++      return { msg: '获取成功', result: true, data: [] }
++    }
++  }
++
++  // 获取零食类型列表
++  if (operation === 'getSnackTypes') {
++    try {
++      const setting = await getSetting(db, 'feed_snack_type')
++      const types = (setting && setting.types) || []
++      return { msg: '获取成功', result: true, data: types.length ? types : DEFAULT_SNACK_TYPES }
++    } catch (error) {
++      return { msg: '获取成功', result: true, data: DEFAULT_SNACK_TYPES }
++    }
++  }
++
++  // 指定猫的喂食记录（所有人可见，可按类别筛选）
++  if (operation === 'listByCat') {
++    const cat_id = ctx.args.cat_id
++    if (!cat_id) {
++      return { msg: '缺少猫咪ID', result: false }
++    }
++    const query = { cat_id: cat_id }
++    if (ctx.args.feed_category && FEED_CATEGORIES.includes(ctx.args.feed_category)) {
++      query.feed_category = ctx.args.feed_category
++    }
++    try {
++      const { result: records } = await db.collection('feed_checkin').find(query, {
++        sort: { created_at: -1 },
++        limit: ctx.args.limit || 50
++      })
++      return { msg: '获取成功', result: true, data: records }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 指定猫的喂食统计（所有人可见，喂食/零食分开统计）
++  if (operation === 'statsByCat') {
++    const cat_id = ctx.args.cat_id
++    if (!cat_id) {
++      return { msg: '缺少猫咪ID', result: false }
++    }
++
++    try {
++      const now = new Date()
++      const fmt = (d) => {
++        const m = String(d.getMonth() + 1).padStart(2, '0')
++        const day = String(d.getDate()).padStart(2, '0')
++        return `${d.getFullYear()}-${m}-${day}`
++      }
++      const date7 = fmt(new Date(now.getTime() - 7 * 24 * 3600 * 1000))
++      const date30 = fmt(new Date(now.getTime() - 30 * 24 * 3600 * 1000))
++
++      // 老数据没有 feed_category 字段，按 meal 计入
++      const mealQuery = { cat_id: cat_id, $or: [{ feed_category: 'meal' }, { feed_category: { $exists: false } }] }
++      const snackQuery = { cat_id: cat_id, feed_category: 'snack' }
++
++      const [
++        { result: mealTotal },
++        { result: snackTotal },
++        { result: mealLast7d },
++        { result: snackLast7d },
++        { result: last30d },
++        { result: recent },
++      ] = await Promise.all([
++        db.collection('feed_checkin').count(mealQuery),
++        db.collection('feed_checkin').count(snackQuery),
++        db.collection('feed_checkin').count({ ...mealQuery, feed_date: { $gte: date7 } }),
++        db.collection('feed_checkin').count({ ...snackQuery, feed_date: { $gte: date7 } }),
++        db.collection('feed_checkin').count({ cat_id: cat_id, feed_date: { $gte: date30 } }),
++        db.collection('feed_checkin').find({ cat_id: cat_id }, { sort: { created_at: -1 }, limit: 1 }),
++      ])
++
++      return {
++        msg: '获取成功',
++        result: true,
++        data: {
++          total: mealTotal + snackTotal,
++          meal_total: mealTotal,
++          snack_total: snackTotal,
++          meal_last7d: mealLast7d,
++          snack_last7d: snackLast7d,
++          last7d: mealLast7d + snackLast7d,
++          last30d: last30d,
++          last_feed: (recent && recent[0]) || null
++        }
++      }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 今日各猫打卡数汇总（分地区打卡主页用，所有人可读）
++  if (operation === 'todayFeedSummary') {
++    const now = new Date()
++    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
++    try {
++      const { result: records } = await db.collection('feed_checkin').find({
++        feed_date: today
++      }, { limit: 1000 })
++
++      // 聚合成 { cat_id: { total, meal, snack } }
++      const summary = {}
++      for (const r of (records || [])) {
++        if (!summary[r.cat_id]) {
++          summary[r.cat_id] = { total: 0, meal: 0, snack: 0 }
++        }
++        summary[r.cat_id].total++
++        if (r.feed_category === 'snack') {
++          summary[r.cat_id].snack++
++        } else {
++          summary[r.cat_id].meal++
++        }
++      }
++      return { msg: '获取成功', result: true, data: summary }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 我的打卡记录（普通用户）
++  if (operation === 'listMine') {
++    try {
++      const { result: records } = await db.collection('feed_checkin').find({
++        _openid: openid
++      }, {
++        sort: { created_at: -1 },
++        limit: 100
++      })
++      return { msg: '获取成功', result: true, data: records }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // ========== 打卡（普通用户） ==========
++
++  // 喂食/零食打卡
++  if (operation === 'checkin') {
++    const { cat_id, feed_date, feed_time, location, note, user_name, feed_category, snack_type } = ctx.args.data || {}
++    if (!cat_id || !feed_date) {
++      return { msg: '缺少必要字段（猫咪、喂食日期）', result: false }
++    }
++
++    const category = FEED_CATEGORIES.includes(feed_category) ? feed_category : 'meal'
++    if (category === 'snack' && !snack_type) {
++      return { msg: '请选择零食类型', result: false }
++    }
++
++    // 校验猫咪存在
++    const { result: cat } = await db.collection('cat').findOne({ _id: cat_id })
++    if (!cat || cat.deleted === 1) {
++      return { msg: '猫咪不存在', result: false }
++    }
++
++    // 同一用户同一天对同一只猫、同一类别只能打卡一次
++    const { result: existCount } = await db.collection('feed_checkin').count({
++      cat_id: cat_id,
++      _openid: openid,
++      feed_date: feed_date,
++      feed_category: category
++    })
++    if (existCount > 0) {
++      return { msg: category === 'snack' ? '今天已经给这只猫猫打过零食卡啦' : '今天已经给这只猫猫打过卡啦', result: false }
++    }
++
++    const checkinData = {
++      cat_id: cat_id,
++      cat_name: cat.name || '',
++      campus: cat.campus || '',
++      area: cat.area || '',
++      _openid: openid,
++      user_name: user_name || '',
++      feed_category: category,
++      snack_type: category === 'snack' ? snack_type : '',
++      feed_date: feed_date,       // yyyy-MM-dd
++      feed_time: feed_time || '', // HH:mm
++      location: location || '',
++      note: note || '',
++      created_at: new Date()
++    }
++
++    try {
++      const { result } = await db.collection('feed_checkin').insertOne(checkinData)
++      return { msg: '打卡成功', result: true, data: result }
++    } catch (error) {
++      return { msg: '打卡失败', error, result: false }
++    }
++  }
++
++  // 删除打卡记录（仅本人或管理员）
++  if (operation === 'remove') {
++    const checkin_id = ctx.args.checkin_id
++    if (!checkin_id) {
++      return { msg: '缺少打卡ID', result: false }
++    }
++
++    const { result: record } = await db.collection('feed_checkin').findOne({ _id: checkin_id })
++    if (!record) {
++      return { msg: '记录不存在', result: false }
++    }
++
++    const is_manager = await checkManager(ctx, openid, 1)
++    if (record._openid !== openid && !is_manager) {
++      return { msg: '只能删除自己的打卡记录', result: false }
++    }
++
++    try {
++      await db.collection('feed_checkin').deleteOne({ _id: checkin_id })
++      return { msg: '删除成功', result: true }
++    } catch (error) {
++      return { msg: '删除失败', error, result: false }
++    }
++  }
++
++  // ========== 地点与零食类型管理（管理员） ==========
++
++  // 添加打卡地点
++  if (operation === 'addLocation') {
++    if (!(await checkManager(ctx, openid, 2))) {
++      return { msg: 'not a manager', result: false }
++    }
++    const location = (ctx.args.location || '').trim()
++    if (!location) {
++      return { msg: '缺少地点名称', result: false }
++    }
++    try {
++      const setting = await getSetting(db, 'feed_location')
++      const locations = (setting && setting.locations) || []
++      if (locations.includes(location)) {
++        return { msg: '地点已存在', result: false }
++      }
++      locations.push(location)
++      await saveSetting(db, 'feed_location', { locations: locations })
++      return { msg: '添加成功', result: true, data: locations }
++    } catch (error) {
++      return { msg: '添加失败', error, result: false }
++    }
++  }
++
++  // 删除打卡地点
++  if (operation === 'removeLocation') {
++    if (!(await checkManager(ctx, openid, 2))) {
++      return { msg: 'not a manager', result: false }
++    }
++    const location = ctx.args.location
++    if (!location) {
++      return { msg: '缺少地点名称', result: false }
++    }
++    try {
++      const setting = await getSetting(db, 'feed_location')
++      const locations = ((setting && setting.locations) || []).filter(l => l !== location)
++      await saveSetting(db, 'feed_location', { locations: locations })
++      return { msg: '删除成功', result: true, data: locations }
++    } catch (error) {
++      return { msg: '删除失败', error, result: false }
++    }
++  }
++
++  // 添加零食类型
++  if (operation === 'addSnackType') {
++    if (!(await checkManager(ctx, openid, 2))) {
++      return { msg: 'not a manager', result: false }
++    }
++    const type = (ctx.args.type || '').trim()
++    if (!type) {
++      return { msg: '缺少类型名称', result: false }
++    }
++    try {
++      const setting = await getSetting(db, 'feed_snack_type')
++      const types = (setting && setting.types) || DEFAULT_SNACK_TYPES.slice()
++      if (types.includes(type)) {
++        return { msg: '类型已存在', result: false }
++      }
++      types.push(type)
++      await saveSetting(db, 'feed_snack_type', { types: types })
++      return { msg: '添加成功', result: true, data: types }
++    } catch (error) {
++      return { msg: '添加失败', error, result: false }
++    }
++  }
++
++  // 删除零食类型（使用中的不允许删除）
++  if (operation === 'removeSnackType') {
++    if (!(await checkManager(ctx, openid, 2))) {
++      return { msg: 'not a manager', result: false }
++    }
++    const type = ctx.args.type
++    if (!type) {
++      return { msg: '缺少类型名称', result: false }
++    }
++    try {
++      const { result: inUseCount } = await db.collection('feed_checkin').count({
++        feed_category: 'snack',
++        snack_type: type
++      })
++      if (inUseCount > 0) {
++        return { msg: `该类型已有 ${inUseCount} 条打卡记录，无法删除`, result: false }
++      }
++
++      const setting = await getSetting(db, 'feed_snack_type')
++      const types = ((setting && setting.types) || DEFAULT_SNACK_TYPES.slice()).filter(t => t !== type)
++      if (types.length === 0) {
++        return { msg: '必须至少保留一种零食类型', result: false }
++      }
++      await saveSetting(db, 'feed_snack_type', { types: types })
++      return { msg: '删除成功', result: true, data: types }
++    } catch (error) {
++      return { msg: '删除失败', error, result: false }
++    }
++  }
++
++  return { msg: '未知操作', result: false }
++}
+diff --git a/functionsEMAS/unionOp/index.js b/functionsEMAS/unionOp/index.js
+index 6ef41c5..6bc7188 100644
+--- a/functionsEMAS/unionOp/index.js
++++ b/functionsEMAS/unionOp/index.js
+@@ -25,6 +25,9 @@ const deleteCosFilesHandler = require('./deleteCosFiles.js')
+ const isManagerHandler = require('./isManager.js')
+ const getCatLocationsHandler = require('./getCatLocations.js')
+ const getCatTrajectoryHandler = require('./getCatTrajectory.js')
++const adoptionOpHandler = require('./adoptionOp.js')
++const medicalOpHandler = require('./medicalOp.js')
++const feedOpHandler = require('./feedOp.js')
+ 
+ const actionMap = {
+     curdOp: curdOpHandler,
+@@ -54,6 +57,9 @@ const actionMap = {
+     isManager: isManagerHandler,
+     getCatLocations: getCatLocationsHandler,
+     getCatTrajectory: getCatTrajectoryHandler,
++    adoptionOp: adoptionOpHandler,
++    medicalOp: medicalOpHandler,
++    feedOp: feedOpHandler,
+ }
+ 
+ module.exports = async (ctx) => {
+diff --git a/functionsEMAS/unionOp/managePhoto.js b/functionsEMAS/unionOp/managePhoto.js
+index 8c65540..d8e4684 100644
+--- a/functionsEMAS/unionOp/managePhoto.js
++++ b/functionsEMAS/unionOp/managePhoto.js
+@@ -156,6 +156,40 @@ module.exports = async (ctx) => {
+         photo_watermark: ''
+       }
+     });
++  } else if (opType == 'transfer') {
++    // 转移照片到另一只猫
++    const target_cat_id = ctx.args.target_cat_id;
++    if (!target_cat_id) {
++      return "empty target_cat_id";
++    }
++    if (photo.cat_id === target_cat_id) {
++      return "same cat";
++    }
++
++    // 校验目标猫存在
++    const { result: targetCat } = await ctx.mpserverless.db.collection('cat').findOne({
++      _id: target_cat_id
++    });
++    if (!targetCat || targetCat.deleted === 1) {
++      return "target cat not found";
++    }
++
++    const source_cat_id = photo.cat_id;
++    await ctx.mpserverless.db.collection('photo').updateOne({
++      _id: photo._id
++    }, {
++      $set: {
++        cat_id: target_cat_id,
++        manager: ctx.args.openid
++      }
++    });
++
++    // 重新计算两只猫的精选照片数量
++    await recountBestPhotos(source_cat_id);
++    await recountBestPhotos(target_cat_id);
++
++    // 更新目标猫的最新照片时间
++    await updateMphoto(target_cat_id);
+   } else if (opType == 'setProcess') {
+     // 修改数据库中记录的压缩图、水印图的URL
+     const compressed = ctx.args.compressed;
+diff --git a/functionsEMAS/unionOp/medicalOp.js b/functionsEMAS/unionOp/medicalOp.js
+new file mode 100644
+index 0000000..5aaca70
+--- /dev/null
++++ b/functionsEMAS/unionOp/medicalOp.js
+@@ -0,0 +1,109 @@
++// 医疗记录：绝育、就诊、驱虫、伤病等（疫苗记录请使用 vaccineOp）
++const { createInternalCtx } = require('./_helper.js')
++const isManagerHandler = require('./isManager.js')
++
++// 记录类型：sterilize 绝育 / clinic 就诊 / deworm 驱虫 / injury 伤病 / other 其他
++const MEDICAL_TYPES = ['sterilize', 'clinic', 'deworm', 'injury', 'other']
++
++module.exports = async (ctx) => {
++  const openid = ctx.args.openid
++  const operation = ctx.args.operation
++  const db = ctx.mpserverless.db
++
++  // 查询操作：所有用户可看（猫咪详情页展示时间线）
++  if (operation === 'list') {
++    const cat_id = ctx.args.cat_id
++    if (!cat_id) {
++      return { msg: '缺少猫咪ID', result: false }
++    }
++    try {
++      const { result: records } = await db.collection('medical').find({
++        cat_id: cat_id
++      }, {
++        sort: { record_date: -1 },
++        limit: 200
++      })
++      return { msg: '获取成功', result: true, data: records }
++    } catch (error) {
++      return { msg: '获取失败', error, result: false }
++    }
++  }
++
++  // 以下操作需要管理员权限（与疫苗管理同级）
++  const is_manager = await isManagerHandler(createInternalCtx(ctx, {
++    openid: openid,
++    req: 2
++  }))
++  if (!is_manager) {
++    return { msg: 'not a manager', result: false }
++  }
++
++  // 添加医疗记录
++  if (operation === 'add') {
++    const recordData = ctx.args.data
++    if (!recordData || !recordData.cat_id || !recordData.type || !recordData.record_date) {
++      return { msg: '缺少必要字段（猫咪、类型、日期）', result: false }
++    }
++    if (!MEDICAL_TYPES.includes(recordData.type)) {
++      return { msg: '未知的记录类型', result: false }
++    }
++
++    recordData.created_by = openid
++    recordData.created_at = new Date()
++    recordData.updated_at = new Date()
++
++    try {
++      const { result } = await db.collection('medical').insertOne(recordData)
++
++      // 绝育记录联动更新猫咪的绝育标记
++      if (recordData.type === 'sterilize') {
++        await db.collection('cat').updateOne({ _id: recordData.cat_id }, {
++          $set: { sterilized: true }
++        })
++      }
++
++      return { msg: '添加成功', result: true, data: result }
++    } catch (error) {
++      return { msg: '添加失败', error, result: false }
++    }
++  }
++
++  // 更新医疗记录
++  if (operation === 'update') {
++    const record_id = ctx.args.record_id
++    const recordData = ctx.args.data
++    if (!record_id || !recordData) {
++      return { msg: '缺少记录ID或数据', result: false }
++    }
++    recordData.updated_at = new Date()
++
++    try {
++      const { result } = await db.collection('medical').updateOne({
++        _id: record_id
++      }, {
++        $set: recordData
++      })
++      return { msg: '更新成功', result: true, data: result }
++    } catch (error) {
++      return { msg: '更新失败', error, result: false }
++    }
++  }
++
++  // 删除医疗记录
++  if (operation === 'remove') {
++    const record_id = ctx.args.record_id
++    if (!record_id) {
++      return { msg: '缺少记录ID', result: false }
++    }
++    try {
++      const { result } = await db.collection('medical').deleteOne({
++        _id: record_id
++      })
++      return { msg: '删除成功', result: true, data: result }
++    } catch (error) {
++      return { msg: '删除失败', error, result: false }
++    }
++  }
++
++  return { msg: '未知操作', result: false }
++}
+diff --git a/miniprogram/app.json b/miniprogram/app.json
+index 9c69607..615a5ef 100644
+--- a/miniprogram/app.json
++++ b/miniprogram/app.json
+@@ -44,7 +44,15 @@
+     "pages/info/dashboard/dashboard",
+     "pages/genealogy/detailCat/relationGraph/relationGraph",
+     "pages/genealogy/applyMapAccess/applyMapAccess",
+-    "pages/map/index/index"
++    "pages/map/index/index",
++    "pages/adoption/applyAdoption/applyAdoption",
++    "pages/info/myAdoption/myAdoption",
++    "pages/manage/checkAdoption/checkAdoption",
++    "pages/manage/medicalManage/medicalManage",
++    "pages/feed/feedRecord/feedRecord",
++    "pages/feed/feedHub/feedHub",
++    "pages/manage/feedSettings/feedSettings",
++    "pages/info/myFootprint/myFootprint"
+   ],
+   "subPackages": [
+     {
+diff --git a/miniprogram/pages/adoption/applyAdoption/applyAdoption.js b/miniprogram/pages/adoption/applyAdoption/applyAdoption.js
+new file mode 100644
+index 0000000..b7204ea
+--- /dev/null
++++ b/miniprogram/pages/adoption/applyAdoption/applyAdoption.js
+@@ -0,0 +1,121 @@
++// 提交领养申请
++import { getCatItem, getAvatar } from "../../../utils/cat";
++import { getUser } from "../../../utils/user";
++import api from "../../../utils/cloudApi";
++
++const app = getApp();
++
++Page({
++  data: {
++    cat: {},
++    form: {
++      applicant_name: '',
++      contact: '',
++      reason: '',
++    },
++    submitting: false,
++  },
++
++  jsData: {
++    cat_id: '',
++  },
++
++  async onLoad(options) {
++    this.jsData.cat_id = options.cat_id;
++    if (!this.jsData.cat_id) {
++      wx.showToast({ title: '缺少猫咪信息', icon: 'none' });
++      setTimeout(() => wx.navigateBack(), 1500);
++      return;
++    }
++
++    const cat = await getCatItem(this.jsData.cat_id);
++    if (!cat) {
++      wx.showToast({ title: '猫咪不存在', icon: 'none' });
++      setTimeout(() => wx.navigateBack(), 1500);
++      return;
++    }
++
++    // 只有"寻找领养中"的猫可以申请
++    if (cat.adopt !== 2) {
++      wx.showModal({
++        title: '无法申请',
++        content: '这只猫猫目前不在寻找领养中',
++        showCancel: false,
++        success: () => wx.navigateBack(),
++      });
++      return;
++    }
++
++    // 头像（getCatItem返回的是原始猫文档，封面需单独获取）
++    const avatar = await getAvatar(this.jsData.cat_id);
++    this.setData({
++      cat,
++      avatarUrl: avatar ? (avatar.photo_compressed || avatar.photo_id) : '',
++    });
++    wx.setNavigationBarTitle({ title: `领养${cat.name}` });
++
++    // 预填昵称
++    const user = await getUser();
++    if (user && user.nickname) {
++      this.setData({ 'form.applicant_name': user.nickname });
++    }
++  },
++
++  onInput(e) {
++    const field = e.currentTarget.dataset.field;
++    this.setData({
++      [`form.${field}`]: e.detail.value,
++    });
++  },
++
++  async submit() {
++    const { form, submitting } = this.data;
++    if (submitting) return;
++
++    if (!form.applicant_name.trim()) {
++      wx.showToast({ title: '请填写姓名/称呼', icon: 'none' });
++      return;
++    }
++    if (!form.contact.trim()) {
++      wx.showToast({ title: '请填写联系方式', icon: 'none' });
++      return;
++    }
++    if (!form.reason.trim()) {
++      wx.showToast({ title: '请填写申请理由', icon: 'none' });
++      return;
++    }
++
++    this.setData({ submitting: true });
++    wx.showLoading({ title: '提交中...' });
++
++    try {
++      const res = await api.adoptionOp({
++        operation: 'apply',
++        data: {
++          cat_id: this.jsData.cat_id,
++          applicant_name: form.applicant_name.trim(),
++          contact: form.contact.trim(),
++          reason: form.reason.trim(),
++        },
++      });
++
++      wx.hideLoading();
++      if (res.result) {
++        wx.showModal({
++          title: '提交成功',
++          content: res.msg || '申请已提交，请等待管理员审核。你可以在「我的-我的领养」中查看进度。',
++          showCancel: false,
++          success: () => wx.navigateBack(),
++        });
++      } else {
++        wx.showModal({ title: '提交失败', content: res.msg || '请稍后重试', showCancel: false });
++        this.setData({ submitting: false });
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[submit] - 提交领养申请失败:', err);
++      wx.showToast({ title: '网络错误，请重试', icon: 'none' });
++      this.setData({ submitting: false });
++    }
++  },
++});
+diff --git a/miniprogram/pages/adoption/applyAdoption/applyAdoption.json b/miniprogram/pages/adoption/applyAdoption/applyAdoption.json
+new file mode 100644
+index 0000000..81dbe6e
+--- /dev/null
++++ b/miniprogram/pages/adoption/applyAdoption/applyAdoption.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "申请领养"
++}
+diff --git a/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxml b/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxml
+new file mode 100644
+index 0000000..b054f9f
+--- /dev/null
++++ b/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxml
+@@ -0,0 +1,34 @@
++<!-- 领养申请表单 -->
++<view class="page">
++  <view class="cat-card" wx:if="{{cat.name}}">
++    <image class="cat-avatar" src="{{avatarUrl}}" mode="aspectFill" />
++    <view class="cat-info">
++      <view class="cat-name">{{cat.name}}</view>
++      <view class="cat-desc">{{cat.campus}} {{cat.area}}</view>
++    </view>
++  </view>
++
++  <view class="form-block">
++    <view class="form-item">
++      <view class="label">姓名/称呼 <text class="required">*</text></view>
++      <input class="input" placeholder="怎么称呼你" value="{{form.applicant_name}}" data-field="applicant_name" bindinput="onInput" />
++    </view>
++    <view class="form-item">
++      <view class="label">联系方式 <text class="required">*</text></view>
++      <input class="input" placeholder="微信号或手机号，供管理员联系你" value="{{form.contact}}" data-field="contact" bindinput="onInput" />
++    </view>
++    <view class="form-item">
++      <view class="label">申请理由 <text class="required">*</text></view>
++      <textarea class="textarea" placeholder="介绍一下你的养猫条件（住所、封窗、养猫经验等），以及为什么想领养它" value="{{form.reason}}" data-field="reason" bindinput="onInput" maxlength="500" />
++      <view class="char-count">{{form.reason.length}}/500</view>
++    </view>
++  </view>
++
++  <view class="tip">
++    提交后管理员会审核你的申请，审核结果可在「我的-我的领养」中查看。通过审核后请保持联系方式畅通。
++  </view>
++
++  <button class="submit-btn {{submitting ? 'disabled' : ''}}" bindtap="submit" disabled="{{submitting}}">
++    {{submitting ? '提交中...' : '提交申请'}}
++  </button>
++</view>
+diff --git a/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxss b/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxss
+new file mode 100644
+index 0000000..43f3187
+--- /dev/null
++++ b/miniprogram/pages/adoption/applyAdoption/applyAdoption.wxss
+@@ -0,0 +1,107 @@
++.page {
++  padding: 30rpx;
++  min-height: 100vh;
++  background: #f7f7f7;
++  box-sizing: border-box;
++}
++
++.cat-card {
++  display: flex;
++  align-items: center;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 24rpx;
++}
++
++.cat-avatar {
++  width: 120rpx;
++  height: 120rpx;
++  border-radius: 50%;
++  background: #eee;
++}
++
++.cat-info {
++  margin-left: 24rpx;
++}
++
++.cat-name {
++  font-size: 36rpx;
++  font-weight: bold;
++  color: #333;
++}
++
++.cat-desc {
++  font-size: 26rpx;
++  color: #999;
++  margin-top: 8rpx;
++}
++
++.form-block {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 10rpx 24rpx;
++}
++
++.form-item {
++  padding: 24rpx 0;
++  border-bottom: 1rpx solid #f0f0f0;
++}
++
++.form-item:last-child {
++  border-bottom: none;
++}
++
++.label {
++  font-size: 28rpx;
++  color: #333;
++  margin-bottom: 16rpx;
++  font-weight: 500;
++}
++
++.required {
++  color: #e64340;
++}
++
++.input {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  font-size: 28rpx;
++}
++
++.textarea {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 20rpx 24rpx;
++  font-size: 28rpx;
++  width: 100%;
++  height: 220rpx;
++  box-sizing: border-box;
++}
++
++.char-count {
++  text-align: right;
++  font-size: 22rpx;
++  color: #ccc;
++  margin-top: 8rpx;
++}
++
++.tip {
++  font-size: 24rpx;
++  color: #999;
++  line-height: 1.6;
++  margin: 24rpx 8rpx;
++}
++
++.submit-btn {
++  background: #07c160;
++  color: #fff;
++  border-radius: 44rpx;
++  font-size: 32rpx;
++  margin-top: 20rpx;
++}
++
++.submit-btn.disabled {
++  background: #a0e6bd;
++}
+diff --git a/miniprogram/pages/feed/feedHub/feedHub.js b/miniprogram/pages/feed/feedHub/feedHub.js
+new file mode 100644
+index 0000000..62012f8
+--- /dev/null
++++ b/miniprogram/pages/feed/feedHub/feedHub.js
+@@ -0,0 +1,171 @@
++// 分地区喂食打卡主页：校区 → 区域 → 猫咪，显示今日打卡情况
++import { getAvatar } from "../../../utils/cat";
++import api from "../../../utils/cloudApi";
++
++const app = getApp();
++
++Page({
++  data: {
++    campusList: [],        // 校区名列表
++    activeCampus: '',
++    areaGroups: [],        // 当前校区的 [{area, cats: [{...} , today}]}]
++    todayTotal: 0,         // 全校区今日打卡总数
++    loading: true,
++  },
++
++  jsData: {
++    catsByCampus: {},      // campus -> cats[]
++    todaySummary: {},      // cat_id -> {total, meal, snack}
++    avatarLoaded: {},      // campus -> bool
++  },
++
++  async onLoad() {
++    await this.loadData();
++  },
++
++  async onShow() {
++    // 打卡返回后刷新今日数据
++    if (this.data.campusList.length) {
++      await this.refreshTodaySummary();
++      this.buildAreaGroups();
++    }
++  },
++
++  async loadData() {
++    this.setData({ loading: true });
++    try {
++      // 所有在册猫咪
++      let cats = [];
++      const { result: total } = await app.mpServerless.db.collection('cat').count({ deleted: { $ne: 1 } });
++      const pools = [];
++      for (let i = 0; i < total; i += 100) {
++        pools.push(app.mpServerless.db.collection('cat').find(
++          { deleted: { $ne: 1 } },
++          { skip: i, limit: 100 }
++        ));
++      }
++      const results = await Promise.all(pools);
++      for (const r of results) {
++        if (r.result) cats = cats.concat(r.result);
++      }
++
++      // 按校区分组
++      const catsByCampus = {};
++      for (const cat of cats) {
++        const campus = cat.campus || '未知校区';
++        if (!catsByCampus[campus]) catsByCampus[campus] = [];
++        catsByCampus[campus].push(cat);
++      }
++      this.jsData.catsByCampus = catsByCampus;
++
++      await this.refreshTodaySummary();
++
++      const campusList = Object.keys(catsByCampus);
++      this.setData({
++        campusList,
++        activeCampus: campusList[0] || '',
++      });
++
++      await this.loadAvatars(this.data.activeCampus);
++      this.buildAreaGroups();
++    } catch (err) {
++      console.error('[loadData] - 加载猫咪失败:', err);
++      wx.showToast({ title: '加载失败', icon: 'none' });
++    } finally {
++      this.setData({ loading: false });
++    }
++  },
++
++  // 今日各猫打卡汇总
++  async refreshTodaySummary() {
++    try {
++      const res = await api.feedOp({ operation: 'todayFeedSummary' });
++      if (res.result) {
++        this.jsData.todaySummary = res.data || {};
++        const todayTotal = Object.values(this.jsData.todaySummary)
++          .reduce((sum, item) => sum + item.total, 0);
++        this.setData({ todayTotal });
++      }
++    } catch (err) {
++      console.error('[refreshTodaySummary] - 加载今日打卡汇总失败:', err);
++    }
++  },
++
++  // 按需加载当前校区猫咪头像
++  async loadAvatars(campus) {
++    if (!campus || this.jsData.avatarLoaded[campus]) return;
++    const cats = this.jsData.catsByCampus[campus] || [];
++    const ids = cats.map(c => c._id);
++    try {
++      const avatars = await getAvatar(ids);
++      ids.forEach((id, i) => {
++        const cat = cats.find(c => c._id === id);
++        if (cat) cat.avatar = avatars[i];
++      });
++      this.jsData.avatarLoaded[campus] = true;
++    } catch (err) {
++      console.error('[loadAvatars] - 加载头像失败:', err);
++    }
++  },
++
++  // 组装当前校区的 区域→猫咪 分组
++  buildAreaGroups() {
++    const campus = this.data.activeCampus;
++    const cats = this.jsData.catsByCampus[campus] || [];
++    const summary = this.jsData.todaySummary;
++
++    const areaMap = {};
++    for (const cat of cats) {
++      const area = cat.area || '其他区域';
++      if (!areaMap[area]) areaMap[area] = [];
++      const today = summary[cat._id] || { total: 0, meal: 0, snack: 0 };
++      areaMap[area].push({
++        _id: cat._id,
++        name: cat.name,
++        avatarUrl: cat.avatar ? (cat.avatar.photo_compressed || cat.avatar.photo_id) : '',
++        today_total: today.total,
++        today_meal: today.meal,
++        today_snack: today.snack,
++      });
++    }
++
++    const areaGroups = Object.keys(areaMap).map(area => {
++      const catsInArea = areaMap[area];
++      // 未打卡的排前面，方便找到还没喂的猫
++      catsInArea.sort((a, b) => a.today_total - b.today_total);
++      return {
++        area,
++        cats: catsInArea,
++        area_today: catsInArea.reduce((sum, c) => sum + c.today_total, 0),
++      };
++    });
++    // 按区域今日打卡数升序，没喂的区域优先展示
++    areaGroups.sort((a, b) => a.area_today - b.area_today);
++
++    this.setData({ areaGroups });
++  },
++
++  async switchCampus(e) {
++    const campus = e.currentTarget.dataset.campus;
++    if (campus === this.data.activeCampus) return;
++    this.setData({ activeCampus: campus, areaGroups: [] });
++    await this.loadAvatars(campus);
++    this.buildAreaGroups();
++  },
++
++  // 跳转猫咪的打卡页
++  toFeedRecord(e) {
++    const { cat_id, category } = e.currentTarget.dataset;
++    wx.navigateTo({
++      url: `/pages/feed/feedRecord/feedRecord?cat_id=${cat_id}&category=${category || 'meal'}`,
++    });
++  },
++
++  // 跳转猫咪详情
++  toCatDetail(e) {
++    const cat_id = e.currentTarget.dataset.cat_id;
++    wx.navigateTo({
++      url: '/pages/genealogy/detailCat/detailCat?cat_id=' + cat_id,
++    });
++  },
++});
+diff --git a/miniprogram/pages/feed/feedHub/feedHub.json b/miniprogram/pages/feed/feedHub/feedHub.json
+new file mode 100644
+index 0000000..1125bee
+--- /dev/null
++++ b/miniprogram/pages/feed/feedHub/feedHub.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "喂食打卡"
++}
+diff --git a/miniprogram/pages/feed/feedHub/feedHub.wxml b/miniprogram/pages/feed/feedHub/feedHub.wxml
+new file mode 100644
+index 0000000..8229758
+--- /dev/null
++++ b/miniprogram/pages/feed/feedHub/feedHub.wxml
+@@ -0,0 +1,37 @@
++<!-- 分地区喂食打卡主页 -->
++<view class="page">
++  <view class="summary-bar">今日全校区已打卡 {{todayTotal}} 次</view>
++
++  <!-- 校区标签 -->
++  <scroll-view class="campus-tabs" scroll-x="1" enhanced="1" show-scrollbar="{{false}}">
++    <view class="campus-tab {{activeCampus === item ? 'active' : ''}}" wx:for="{{campusList}}" wx:key="*this" data-campus="{{item}}" bindtap="switchCampus">{{item}}</view>
++  </scroll-view>
++
++  <view class="empty" wx:if="{{!loading && areaGroups.length === 0}}">该校区暂无猫咪</view>
++
++  <!-- 区域分组 -->
++  <view class="area-section" wx:for="{{areaGroups}}" wx:key="area" wx:for-item="group">
++    <view class="area-header">
++      <view class="area-name">{{group.area}}</view>
++      <view class="area-today {{group.area_today === 0 ? 'none' : ''}}">
++        {{group.area_today === 0 ? '今日还没人打卡' : '今日已打卡 ' + group.area_today + ' 次'}}
++      </view>
++    </view>
++
++    <view class="cat-row" wx:for="{{group.cats}}" wx:key="_id" wx:for-item="cat">
++      <image class="cat-avatar" src="{{cat.avatarUrl}}" mode="aspectFill" bindtap="toCatDetail" data-cat_id="{{cat._id}}" />
++      <view class="cat-info" bindtap="toCatDetail" data-cat_id="{{cat._id}}">
++        <view class="cat-name">{{cat.name}}</view>
++        <view class="cat-today {{cat.today_total === 0 ? 'none' : ''}}">
++          {{cat.today_total === 0 ? '今日未打卡' : '喂食' + cat.today_meal + ' · 零食' + cat.today_snack}}
++        </view>
++      </view>
++      <view class="checkin-btns">
++        <view class="mini-btn meal" bindtap="toFeedRecord" data-cat_id="{{cat._id}}" data-category="meal">喂食</view>
++        <view class="mini-btn snack" bindtap="toFeedRecord" data-cat_id="{{cat._id}}" data-category="snack">零食</view>
++      </view>
++    </view>
++  </view>
++
++  <view style="height: 40rpx;"></view>
++</view>
+diff --git a/miniprogram/pages/feed/feedHub/feedHub.wxss b/miniprogram/pages/feed/feedHub/feedHub.wxss
+new file mode 100644
+index 0000000..e4dac32
+--- /dev/null
++++ b/miniprogram/pages/feed/feedHub/feedHub.wxss
+@@ -0,0 +1,140 @@
++.page {
++  min-height: 100vh;
++  background: #f7f7f7;
++}
++
++.summary-bar {
++  background: #fff7e6;
++  color: #d46b08;
++  font-size: 24rpx;
++  text-align: center;
++  padding: 16rpx 0;
++}
++
++.campus-tabs {
++  display: flex;
++  white-space: nowrap;
++  background: #fff;
++  padding: 20rpx 30rpx;
++  position: sticky;
++  top: 0;
++  z-index: 10;
++}
++
++.campus-tab {
++  display: inline-block;
++  font-size: 28rpx;
++  color: #666;
++  padding: 12rpx 32rpx;
++  border-radius: 32rpx;
++  margin-right: 20rpx;
++  background: #f5f5f5;
++}
++
++.campus-tab.active {
++  background: #fa8c16;
++  color: #fff;
++}
++
++.empty {
++  text-align: center;
++  color: #999;
++  font-size: 28rpx;
++  padding: 100rpx 0;
++}
++
++.area-section {
++  margin: 24rpx 30rpx 0;
++  background: #fff;
++  border-radius: 16rpx;
++  overflow: hidden;
++}
++
++.area-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  padding: 20rpx 24rpx;
++  background: #fafafa;
++  border-bottom: 1rpx solid #f0f0f0;
++}
++
++.area-name {
++  font-size: 30rpx;
++  font-weight: bold;
++  color: #333;
++}
++
++.area-today {
++  font-size: 22rpx;
++  color: #52c41a;
++}
++
++.area-today.none {
++  color: #f5222d;
++}
++
++.cat-row {
++  display: flex;
++  align-items: center;
++  padding: 20rpx 24rpx;
++  border-bottom: 1rpx solid #f7f7f7;
++}
++
++.cat-row:last-child {
++  border-bottom: none;
++}
++
++.cat-avatar {
++  width: 88rpx;
++  height: 88rpx;
++  border-radius: 50%;
++  background: #eee;
++  flex-shrink: 0;
++}
++
++.cat-info {
++  flex: 1;
++  margin-left: 20rpx;
++}
++
++.cat-name {
++  font-size: 30rpx;
++  font-weight: 500;
++  color: #333;
++}
++
++.cat-today {
++  font-size: 22rpx;
++  color: #52c41a;
++  margin-top: 6rpx;
++}
++
++.cat-today.none {
++  color: #bbb;
++}
++
++.checkin-btns {
++  display: flex;
++  flex-direction: column;
++}
++
++.mini-btn {
++  font-size: 24rpx;
++  padding: 8rpx 28rpx;
++  border-radius: 28rpx;
++  margin: 6rpx 0;
++  text-align: center;
++}
++
++.mini-btn.meal {
++  background: #fff7e6;
++  color: #fa8c16;
++  border: 1rpx solid #ffd591;
++}
++
++.mini-btn.snack {
++  background: #fff0f6;
++  color: #eb2f96;
++  border: 1rpx solid #ffadd2;
++}
+diff --git a/miniprogram/pages/feed/feedRecord/feedRecord.js b/miniprogram/pages/feed/feedRecord/feedRecord.js
+new file mode 100644
+index 0000000..601b38e
+--- /dev/null
++++ b/miniprogram/pages/feed/feedRecord/feedRecord.js
+@@ -0,0 +1,279 @@
++// 喂食/零食打卡：打卡、记录列表、统计（地点从管理员自定义列表选择）
++import { getCatItem } from "../../../utils/cat";
++import { getUser } from "../../../utils/user";
++import api from "../../../utils/cloudApi";
++import { formatDate } from "../../../utils/utils";
++
++const CATEGORY_DESC = {
++  meal: '喂食',
++  snack: '零食',
++};
++
++Page({
++  data: {
++    cat: {},
++    category: 'meal',        // meal 喂食 / snack 零食
++    categoryDesc: CATEGORY_DESC,
++    stats: {
++      total: 0,
++      meal_total: 0,
++      snack_total: 0,
++      meal_last7d: 0,
++      snack_last7d: 0,
++      last30d: 0,
++      last_feed: null,
++    },
++    records: [],
++    loading: true,
++    todayChecked: false,
++    // 打卡表单
++    showCheckinModal: false,
++    locations: [],           // 管理员自定义地点
++    locationOptions: [],     // 自定义地点 + "其他（手动输入）"
++    showCustomLocation: false,
++    snackTypes: [],
++    form: {
++      feed_date: '',
++      feed_time: '',
++      locationIndex: -1,
++      custom_location: '',
++      snackTypeIndex: 0,
++      note: '',
++    },
++    submitting: false,
++  },
++
++  jsData: {
++    cat_id: '',
++    myOpenid: '',
++  },
++
++  async onLoad(options) {
++    this.jsData.cat_id = options.cat_id;
++    if (!this.jsData.cat_id) {
++      wx.showToast({ title: '缺少猫咪信息', icon: 'none' });
++      setTimeout(() => wx.navigateBack(), 1500);
++      return;
++    }
++
++    const category = options.category === 'snack' ? 'snack' : 'meal';
++    this.setData({ category });
++
++    const cat = await getCatItem(this.jsData.cat_id);
++    this.setData({ cat: cat || {} });
++    if (cat && cat.name) {
++      wx.setNavigationBarTitle({ title: `${cat.name}的${CATEGORY_DESC[category]}打卡` });
++    }
++
++    this.jsData.myOpenid = await api.getCurrentUserOpenid();
++
++    const now = new Date();
++    this.setData({
++      'form.feed_date': formatDate(now, 'yyyy-MM-dd'),
++      'form.feed_time': `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
++    });
++
++    await Promise.all([this.loadAll(), this.loadLocations(), this.loadSnackTypes()]);
++  },
++
++  async onShow() {
++    if (this.jsData.cat_id) {
++      await this.loadAll();
++    }
++  },
++
++  async loadAll() {
++    await Promise.all([this.loadStats(), this.loadRecords()]);
++    this.setData({ loading: false });
++  },
++
++  // 管理员自定义的打卡地点
++  async loadLocations() {
++    try {
++      const res = await api.feedOp({ operation: 'getLocations' });
++      if (res.result) {
++        const locations = res.data || [];
++        this.setData({
++          locations,
++          locationOptions: locations.concat(['其他（手动输入）']),
++        });
++      }
++    } catch (err) {
++      console.error('[loadLocations] - 加载打卡地点失败:', err);
++    }
++  },
++
++  // 零食类型
++  async loadSnackTypes() {
++    try {
++      const res = await api.feedOp({ operation: 'getSnackTypes' });
++      if (res.result) {
++        this.setData({ snackTypes: res.data || [] });
++      }
++    } catch (err) {
++      console.error('[loadSnackTypes] - 加载零食类型失败:', err);
++    }
++  },
++
++  async loadStats() {
++    try {
++      const res = await api.feedOp({ operation: 'statsByCat', cat_id: this.jsData.cat_id });
++      if (res.result && res.data) {
++        const stats = res.data;
++        if (stats.last_feed) {
++          stats.last_feed.created_at_formatted = formatDate(stats.last_feed.created_at, 'yyyy-MM-dd hh:mm');
++        }
++        this.setData({ stats });
++      }
++    } catch (err) {
++      console.error('[loadStats] - 加载喂食统计失败:', err);
++    }
++  },
++
++  async loadRecords() {
++    try {
++      const res = await api.feedOp({
++        operation: 'listByCat',
++        cat_id: this.jsData.cat_id,
++        feed_category: this.data.category,
++        limit: 50,
++      });
++      if (res.result) {
++        const today = formatDate(new Date(), 'yyyy-MM-dd');
++        const category = this.data.category;
++        let todayChecked = false;
++        const records = (res.data || []).map(r => {
++          const rCategory = r.feed_category || 'meal';
++          if (r._openid === this.jsData.myOpenid && r.feed_date === today && rCategory === category) {
++            todayChecked = true;
++          }
++          return {
++            ...r,
++            category_desc: CATEGORY_DESC[rCategory],
++            created_at_formatted: formatDate(r.created_at, 'yyyy-MM-dd hh:mm'),
++            isMine: r._openid === this.jsData.myOpenid,
++          };
++        });
++        this.setData({ records, todayChecked });
++      }
++    } catch (err) {
++      console.error('[loadRecords] - 加载喂食记录失败:', err);
++    }
++  },
++
++  openCheckin() {
++    if (this.data.todayChecked) {
++      wx.showToast({ title: '今天已经打过卡啦', icon: 'none' });
++      return;
++    }
++    this.setData({ showCheckinModal: true });
++  },
++
++  closeCheckin() {
++    this.setData({ showCheckinModal: false });
++  },
++
++  onDateChange(e) {
++    this.setData({ 'form.feed_date': e.detail.value });
++  },
++
++  onTimeChange(e) {
++    this.setData({ 'form.feed_time': e.detail.value });
++  },
++
++  onLocationChange(e) {
++    const index = Number(e.detail.value);
++    // 最后一项是"其他（手动输入）"
++    const showCustom = index === this.data.locations.length;
++    this.setData({
++      'form.locationIndex': index,
++      showCustomLocation: showCustom,
++      'form.custom_location': showCustom ? this.data.form.custom_location : '',
++    });
++  },
++
++  onSnackTypeChange(e) {
++    this.setData({ 'form.snackTypeIndex': Number(e.detail.value) });
++  },
++
++  onInput(e) {
++    const field = e.currentTarget.dataset.field;
++    this.setData({ [`form.${field}`]: e.detail.value });
++  },
++
++  async submitCheckin() {
++    const { form, submitting, category, locations, snackTypes, showCustomLocation } = this.data;
++    if (submitting) return;
++
++    // 地点：从自定义列表选择或手动输入
++    let location = '';
++    if (showCustomLocation) {
++      location = form.custom_location.trim();
++    } else if (form.locationIndex >= 0 && locations[form.locationIndex]) {
++      location = locations[form.locationIndex];
++    }
++
++    const snack_type = category === 'snack' ? (snackTypes[form.snackTypeIndex] || '') : '';
++    if (category === 'snack' && !snack_type) {
++      wx.showToast({ title: '请选择零食类型', icon: 'none' });
++      return;
++    }
++
++    this.setData({ submitting: true });
++    wx.showLoading({ title: '打卡中...' });
++
++    let userName = '';
++    try {
++      const user = await getUser();
++      userName = (user && user.nickname) || '';
++    } catch (e) { /* 忽略 */ }
++
++    try {
++      const res = await api.feedOp({
++        operation: 'checkin',
++        data: {
++          cat_id: this.jsData.cat_id,
++          feed_category: category,
++          snack_type: snack_type,
++          feed_date: form.feed_date,
++          feed_time: form.feed_time,
++          location: location,
++          note: form.note.trim(),
++          user_name: userName,
++        },
++      });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '打卡成功' : '打卡失败'), icon: 'none' });
++      if (res.result) {
++        this.closeCheckin();
++        await this.loadAll();
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[submitCheckin] - 打卡失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    } finally {
++      this.setData({ submitting: false });
++    }
++  },
++
++  async removeRecord(e) {
++    const id = e.currentTarget.dataset.id;
++    const modalRes = await wx.showModal({
++      title: '删除打卡',
++      content: '确定删除这条打卡记录吗？',
++    });
++    if (!modalRes.confirm) return;
++
++    try {
++      const res = await api.feedOp({ operation: 'remove', checkin_id: id });
++      wx.showToast({ title: res.msg || (res.result ? '已删除' : '删除失败'), icon: 'none' });
++      if (res.result) {
++        await this.loadAll();
++      }
++    } catch (err) {
++      console.error('[removeRecord] - 删除失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++});
+diff --git a/miniprogram/pages/feed/feedRecord/feedRecord.json b/miniprogram/pages/feed/feedRecord/feedRecord.json
+new file mode 100644
+index 0000000..1125bee
+--- /dev/null
++++ b/miniprogram/pages/feed/feedRecord/feedRecord.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "喂食打卡"
++}
+diff --git a/miniprogram/pages/feed/feedRecord/feedRecord.wxml b/miniprogram/pages/feed/feedRecord/feedRecord.wxml
+new file mode 100644
+index 0000000..663d822
+--- /dev/null
++++ b/miniprogram/pages/feed/feedRecord/feedRecord.wxml
+@@ -0,0 +1,98 @@
++<!-- 喂食/零食打卡与记录 -->
++<view class="page">
++  <!-- 统计区 -->
++  <view class="stats-card">
++    <view class="stat-item">
++      <view class="stat-num">{{stats.meal_total}}</view>
++      <view class="stat-label">喂食总打卡</view>
++    </view>
++    <view class="stat-item">
++      <view class="stat-num snack">{{stats.snack_total}}</view>
++      <view class="stat-label">零食总打卡</view>
++    </view>
++    <view class="stat-item">
++      <view class="stat-num">{{stats.last7d}}</view>
++      <view class="stat-label">近7天</view>
++    </view>
++    <view class="stat-item">
++      <view class="stat-num">{{stats.last30d}}</view>
++      <view class="stat-label">近30天</view>
++    </view>
++  </view>
++
++  <view class="last-feed" wx:if="{{stats.last_feed}}">
++    最近一次{{stats.last_feed.feed_category === 'snack' ? '零食' : '喂食'}}：{{stats.last_feed.created_at_formatted}}<text wx:if="{{stats.last_feed.user_name}}">（{{stats.last_feed.user_name}}）</text>
++  </view>
++  <view class="last-feed" wx:elif="{{!loading}}">还没有记录，来打第一卡吧</view>
++
++  <button class="checkin-btn {{category === 'snack' ? 'snack-btn' : ''}} {{todayChecked ? 'checked' : ''}}" bindtap="openCheckin">
++    {{todayChecked ? '今日已打卡 ✓' : categoryDesc[category] + '打卡'}}
++  </button>
++
++  <!-- 记录列表 -->
++  <view class="block-title">{{categoryDesc[category]}}记录</view>
++  <view class="empty" wx:if="{{!loading && records.length === 0}}">暂无记录</view>
++
++  <view class="record-card" wx:for="{{records}}" wx:key="_id">
++    <view class="record-header">
++      <view class="user-name">
++        {{item.user_name || '热心同学'}}
++        <text class="snack-tag" wx:if="{{item.feed_category === 'snack'}}">{{item.snack_type}}</text>
++      </view>
++      <view class="feed-date">{{item.feed_date}} {{item.feed_time}}</view>
++    </view>
++    <view class="record-info" wx:if="{{item.location}}">地点：{{item.location}}</view>
++    <view class="record-info" wx:if="{{item.note}}">{{item.note}}</view>
++    <view class="record-footer">
++      <view class="created-at">{{item.created_at_formatted}} 打卡</view>
++      <view class="delete-btn" wx:if="{{item.isMine}}" bindtap="removeRecord" data-id="{{item._id}}">删除</view>
++    </view>
++  </view>
++
++  <!-- 打卡弹窗 -->
++  <view class="modal-mask" wx:if="{{showCheckinModal}}" bindtap="closeCheckin">
++    <view class="modal" catchtap="">
++      <view class="modal-title">{{categoryDesc[category]}}打卡</view>
++
++      <view class="form-item" wx:if="{{category === 'snack'}}">
++        <view class="label">零食类型</view>
++        <picker range="{{snackTypes}}" value="{{form.snackTypeIndex}}" bindchange="onSnackTypeChange">
++          <view class="picker">{{snackTypes[form.snackTypeIndex] || '请选择'}} ▾</view>
++        </picker>
++      </view>
++
++      <view class="form-item">
++        <view class="label">{{categoryDesc[category]}}日期</view>
++        <picker mode="date" value="{{form.feed_date}}" bindchange="onDateChange">
++          <view class="picker">{{form.feed_date}} ▾</view>
++        </picker>
++      </view>
++
++      <view class="form-item">
++        <view class="label">{{categoryDesc[category]}}时间</view>
++        <picker mode="time" value="{{form.feed_time}}" bindchange="onTimeChange">
++          <view class="picker">{{form.feed_time}} ▾</view>
++        </picker>
++      </view>
++
++      <view class="form-item">
++        <view class="label">地点</view>
++        <picker wx:if="{{locations.length}}" range="{{locationOptions}}" value="{{form.locationIndex}}" bindchange="onLocationChange">
++          <view class="picker">{{form.locationIndex >= 0 ? locationOptions[form.locationIndex] : '请选择地点'}} ▾</view>
++        </picker>
++        <view class="tip-text" wx:if="{{!locations.length}}">管理员还没有设置打卡地点，请手动输入</view>
++        <input wx:if="{{!locations.length || showCustomLocation}}" class="input" placeholder="如：图书馆后草坪" value="{{form.custom_location}}" data-field="custom_location" bindinput="onInput" />
++      </view>
++
++      <view class="form-item">
++        <view class="label">备注（可选）</view>
++        <textarea class="textarea" placeholder="喂了什么、猫猫状态如何" value="{{form.note}}" data-field="note" bindinput="onInput" maxlength="200" />
++      </view>
++
++      <view class="modal-buttons">
++        <button class="modal-btn cancel" bindtap="closeCheckin">取消</button>
++        <button class="modal-btn confirm" bindtap="submitCheckin" disabled="{{submitting}}">确认打卡</button>
++      </view>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/pages/feed/feedRecord/feedRecord.wxss b/miniprogram/pages/feed/feedRecord/feedRecord.wxss
+new file mode 100644
+index 0000000..fe32df8
+--- /dev/null
++++ b/miniprogram/pages/feed/feedRecord/feedRecord.wxss
+@@ -0,0 +1,223 @@
++.page {
++  padding: 30rpx;
++  min-height: 100vh;
++  background: #f7f7f7;
++  box-sizing: border-box;
++}
++
++.stats-card {
++  display: flex;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 32rpx 0;
++}
++
++.stat-item {
++  flex: 1;
++  text-align: center;
++}
++
++.stat-num {
++  font-size: 44rpx;
++  font-weight: bold;
++  color: #fa8c16;
++}
++
++.stat-label {
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 8rpx;
++}
++
++.last-feed {
++  font-size: 24rpx;
++  color: #666;
++  text-align: center;
++  margin: 24rpx 0;
++}
++
++.checkin-btn {
++  background: #fa8c16;
++  color: #fff;
++  border-radius: 44rpx;
++  font-size: 32rpx;
++}
++
++.checkin-btn.checked {
++  background: #f5f5f5;
++  color: #999;
++}
++
++.block-title {
++  font-size: 30rpx;
++  font-weight: bold;
++  color: #333;
++  margin: 32rpx 8rpx 20rpx;
++}
++
++.empty {
++  text-align: center;
++  color: #999;
++  font-size: 28rpx;
++  padding: 60rpx 0;
++}
++
++.record-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 20rpx;
++}
++
++.record-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++}
++
++.user-name {
++  font-size: 28rpx;
++  font-weight: 500;
++  color: #333;
++}
++
++.feed-date {
++  font-size: 24rpx;
++  color: #fa8c16;
++}
++
++.record-info {
++  font-size: 26rpx;
++  color: #666;
++  margin-top: 10rpx;
++  line-height: 1.5;
++}
++
++.record-footer {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-top: 16rpx;
++  border-top: 1rpx solid #f5f5f5;
++  padding-top: 16rpx;
++}
++
++.created-at {
++  font-size: 22rpx;
++  color: #ccc;
++}
++
++.delete-btn {
++  font-size: 24rpx;
++  color: #f5222d;
++}
++
++.modal-mask {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  background: rgba(0, 0, 0, 0.5);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  z-index: 100;
++}
++
++.modal {
++  width: 640rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 32rpx;
++}
++
++.modal-title {
++  font-size: 32rpx;
++  font-weight: bold;
++  text-align: center;
++  margin-bottom: 20rpx;
++}
++
++.form-item {
++  margin-bottom: 20rpx;
++}
++
++.label {
++  font-size: 26rpx;
++  color: #666;
++  margin-bottom: 12rpx;
++}
++
++.input {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++}
++
++.textarea {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++  width: 100%;
++  height: 140rpx;
++  box-sizing: border-box;
++}
++
++.picker {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++  color: #333;
++}
++
++.modal-buttons {
++  display: flex;
++  /* gap兼容处理：用margin代替 */
++  margin-top: 28rpx;
++}
++
++.modal-btn {
++  flex: 1;
++  font-size: 28rpx;
++}
++
++.modal-btn.cancel {
++  background: #f5f5f5;
++  color: #666;
++}
++
++.modal-btn.confirm {
++  background: #fa8c16;
++  color: #fff;
++}
++
++.modal-buttons button { margin-left: 20rpx; }
++.modal-buttons button:first-child { margin-left: 0; }
++
++/* 零食打卡 */
++.stat-num.snack {
++  color: #eb2f96;
++}
++
++.snack-btn {
++  background: #eb2f96;
++}
++
++.snack-tag {
++  font-size: 20rpx;
++  color: #eb2f96;
++  background: #fff0f6;
++  border-radius: 16rpx;
++  padding: 2rpx 14rpx;
++  margin-left: 12rpx;
++}
++
++.tip-text {
++  font-size: 24rpx;
++  color: #999;
++  margin-bottom: 12rpx;
++}
+diff --git a/miniprogram/pages/genealogy/detailCat/detailCat.js b/miniprogram/pages/genealogy/detailCat/detailCat.js
+index acef327..25aa226 100644
+--- a/miniprogram/pages/genealogy/detailCat/detailCat.js
++++ b/miniprogram/pages/genealogy/detailCat/detailCat.js
+@@ -91,6 +91,20 @@ Page({
+     // 疫苗记录相关
+     showVaccineHistory: false,
+     vaccineHistory: [],
++
++    // 医疗记录相关
++    showMedicalHistory: false,
++    medicalTimeline: [],
++    medicalTypeName: {
++      sterilize: '绝育',
++      clinic: '就诊',
++      deworm: '驱虫',
++      injury: '伤病',
++      other: '其他',
++    },
++
++    // 喂食统计
++    feedStats: null,
+   },
+ 
+   jsData: {
+@@ -265,6 +279,8 @@ Page({
+       this.loadRelations(),
+       this.reloadCatBadge(),
+       this.getLatestVaccine(cat._id),
++      this.getMedicalTimeline(cat._id),
++      this.getFeedStats(cat._id),
+     ]);
+ 
+     var query = wx.createSelectorQuery();
+@@ -988,4 +1004,88 @@ Page({
+       showVaccineHistory: false
+     });
+   },
++
++  // 获取医疗记录时间线（绝育/就诊/驱虫等）
++  async getMedicalTimeline(cat_id) {
++    try {
++      const result = await api.medicalOp({
++        operation: 'list',
++        cat_id: cat_id
++      });
++
++      if (result?.result === true && Array.isArray(result.data)) {
++        const medicalTimeline = result.data.map(record => ({
++          ...record,
++          record_date_formatted: record.record_date ? formatDate(record.record_date, "yyyy-MM-dd") : '',
++        }));
++        // 按日期降序
++        medicalTimeline.sort((a, b) => {
++          const dateA = a.record_date ? new Date(a.record_date).getTime() : 0;
++          const dateB = b.record_date ? new Date(b.record_date).getTime() : 0;
++          return dateB - dateA;
++        });
++        this.setData({ medicalTimeline });
++      }
++    } catch (error) {
++      console.error('获取医疗记录失败:', error);
++    }
++  },
++
++  // 显示医疗记录时间线
++  toMedicalDetail() {
++    this.setData({
++      showMedicalHistory: true
++    });
++  },
++
++  // 隐藏医疗记录时间线
++  hideMedicalHistory() {
++    this.setData({
++      showMedicalHistory: false
++    });
++  },
++
++  // 跳转医疗记录管理（管理员）
++  toMedicalManage() {
++    wx.navigateTo({
++      url: '/pages/manage/medicalManage/medicalManage?cat_id=' + this.jsData.cat_id,
++    });
++  },
++
++  // 获取喂食统计
++  async getFeedStats(cat_id) {
++    try {
++      const result = await api.feedOp({
++        operation: 'statsByCat',
++        cat_id: cat_id
++      });
++      if (result?.result === true && result.data) {
++        this.setData({ feedStats: result.data });
++      }
++    } catch (error) {
++      console.error('获取喂食统计失败:', error);
++    }
++  },
++
++  // 跳转喂食/零食打卡页
++  toFeedRecord(e) {
++    const category = (e && e.currentTarget && e.currentTarget.dataset.category) || 'meal';
++    wx.navigateTo({
++      url: '/pages/feed/feedRecord/feedRecord?cat_id=' + this.jsData.cat_id + '&category=' + category,
++    });
++  },
++
++  // 跳转分地区打卡主页
++  toFeedHub() {
++    wx.navigateTo({
++      url: '/pages/feed/feedHub/feedHub',
++    });
++  },
++
++  // 跳转领养申请页
++  toApplyAdoption() {
++    wx.navigateTo({
++      url: '/pages/adoption/applyAdoption/applyAdoption?cat_id=' + this.jsData.cat_id,
++    });
++  },
+ })
+diff --git a/miniprogram/pages/genealogy/detailCat/detailCat.wxml b/miniprogram/pages/genealogy/detailCat/detailCat.wxml
+index cf57124..e01f4d5 100644
+--- a/miniprogram/pages/genealogy/detailCat/detailCat.wxml
++++ b/miniprogram/pages/genealogy/detailCat/detailCat.wxml
+@@ -59,6 +59,13 @@
+         <view class='iconfont icon-qrcode'></view>
+       </view>
+     </view>
++
++    <!-- 领养横幅：寻找领养中时展示 -->
++    <view class="adopt-banner" wx:if="{{cat.adopt === 2}}" bindtap="toApplyAdoption">
++      <view class="adopt-banner-icon iconfont icon-home-o"></view>
++      <view class="adopt-banner-text">我正在寻找一个新家，点击申请领养</view>
++      <view class="adopt-banner-arrow">→</view>
++    </view>
+     <view class='details'>
+ 
+       <!-- 基本信息 -->
+@@ -163,6 +170,55 @@
+         </view>
+       </view>
+ 
++      <!-- 医疗记录 -->
++      <view class="card" wx:if="{{medicalTimeline.length || is_manager}}">
++        <view class="card-header">
++          <view class="card-title">
++            <view class="iconfont icon-description"></view>
++            医疗记录
++          </view>
++          <view class="badge-all" bindtap="toMedicalDetail" wx:if="{{medicalTimeline.length}}">查看时间线</view>
++          <view class="badge-all" bindtap="toMedicalManage" wx:if="{{is_manager}}">管理</view>
++        </view>
++
++        <view class='item long' wx:if="{{medicalTimeline.length}}">
++          <view class="latest-vaccine">
++            <view class="iconfont icon-success"></view>
++            <view class='value vaccine-info'>
++              <text>{{medicalTypeName[medicalTimeline[0].type]}}·{{medicalTimeline[0].title}}</text>
++              <text>{{medicalTimeline[0].record_date_formatted}}</text>
++            </view>
++          </view>
++        </view>
++        <view class='item long' wx:else>
++          <view class='value' style="color:#999;font-size:26rpx;">暂无医疗记录</view>
++        </view>
++      </view>
++
++      <!-- 喂食动态 -->
++      <view class="card" wx:if="{{feedStats}}">
++        <view class="card-header">
++          <view class="card-title">
++            <view class="iconfont icon-balance-o"></view>
++            喂食动态
++          </view>
++          <view class="badge-all" bindtap="toFeedRecord" data-category="meal">喂食打卡</view>
++          <view class="badge-all" bindtap="toFeedRecord" data-category="snack">零食打卡</view>
++        </view>
++
++        <view class='item long'>
++          <view class="latest-vaccine">
++            <view class='value vaccine-info'>
++              <text>喂食 {{feedStats.meal_total}} 次 · 零食 {{feedStats.snack_total}} 次</text>
++              <text>近7天 {{feedStats.last7d}} 次 · 近30天 {{feedStats.last30d}} 次</text>
++            </view>
++          </view>
++        </view>
++        <view class='item long' bindtap="toFeedHub">
++          <view class='value' style="color:#576b95;font-size:26rpx;">按地区查看今日打卡情况 →</view>
++        </view>
++      </view>
++
+       <!-- 徽章口袋 --> 
+       <view class="card" wx:if="{{showBadge}}">
+         <view class="card-header">
+@@ -286,6 +342,10 @@
+         <image class="icon {{followedCat ? 'gray' : ''}}" src='/pages/public/images/button/follow.svg'></image>
+         <view class="button-text">{{followedCat ? "取消关注" : "关注动态"}}</view>
+       </view>
++      <view class="button" bindtap='toFeedRecord'>
++        <image class="icon" src='/pages/public/images/button/heart.png'></image>
++        <view class="button-text">喂食打卡</view>
++      </view>
+       <view class="button" bindtap='bindTapFeedback'>
+         <image class="icon" src='/pages/public/images/button/flag.svg'></image>
+         <view class="button-text">{{text_cfg.detail_cat.button_feedback}}</view>
+@@ -346,6 +406,35 @@
+   </view>
+ </popup>
+ 
++<!-- 医疗记录时间线弹出层 -->
++<popup show="{{showMedicalHistory}}" position="center" bind:close="hideMedicalHistory">
++  <view class="modal-content-wrapper">
++    <view class="modal-header">
++      <text>{{cat.name}}的医疗时间线</text>
++      <view class="modal-close" bindtap="hideMedicalHistory">×</view>
++    </view>
++    <scroll-view class="modal-body" scroll-y="1">
++      <view class="vaccine-timeline" wx:if="{{medicalTimeline && medicalTimeline.length}}">
++        <view class="timeline-item" wx:for="{{medicalTimeline}}" wx:key="_id">
++          <view class="timeline-icon {{index === 0 ? 'iconfont icon-success' : 'timeline-dot'}}"></view>
++          <view class="timeline-connector" wx:if="{{index !== medicalTimeline.length - 1}}"></view>
++          <view class="timeline-content {{index === 0 ? 'first-card' : ''}}">
++            <view class="timeline-header">
++              <view class="timeline-title">{{medicalTypeName[item.type]}}·{{item.title}}</view>
++              <view class="timeline-date">{{item.record_date_formatted}}</view>
++            </view>
++            <view class="timeline-body">
++              <view class="timeline-info" wx:if="{{item.hospital}}">医院/地点：{{item.hospital}}</view>
++              <view class="timeline-info" wx:if="{{item.description}}">{{item.description}}</view>
++            </view>
++          </view>
++        </view>
++      </view>
++      <view wx:else style="text-align:center;color:#999;padding:60rpx 0;">暂无医疗记录</view>
++    </scroll-view>
++  </view>
++</popup>
++
+ <badgeModal zindex="2" show="{{modal.show}}" title="{{modal.title}}" name="{{modal.name}}" img="{{modal.img}}" desc="{{modal.desc}}" tip="{{modal.tip}}" level="{{modal.level}}" bind:close="hideBadgeModal"></badgeModal>
+ 
+ <!-- 海报图弹窗组件 -->
+diff --git a/miniprogram/pages/genealogy/detailCat/detailCat.wxss b/miniprogram/pages/genealogy/detailCat/detailCat.wxss
+index b3891d8..c70df3e 100644
+--- a/miniprogram/pages/genealogy/detailCat/detailCat.wxss
++++ b/miniprogram/pages/genealogy/detailCat/detailCat.wxss
+@@ -994,3 +994,37 @@ swiper-item image {
+   word-break: break-all;
+   margin-bottom: 8rpx;
+ }
++
++/* 领养横幅 */
++.adopt-banner {
++  display: flex;
++  align-items: center;
++  background: linear-gradient(90deg, #fff7e6, #ffe7ba);
++  border: 1rpx solid #ffd591;
++  border-radius: 16rpx;
++  padding: 20rpx 24rpx;
++  margin: 20rpx 30rpx 0;
++}
++
++.adopt-banner-icon {
++  font-size: 36rpx;
++  margin-right: 16rpx;
++}
++
++.adopt-banner-text {
++  flex: 1;
++  font-size: 28rpx;
++  color: #d46b08;
++  font-weight: 500;
++}
++
++.adopt-banner-arrow {
++  font-size: 32rpx;
++  color: #d46b08;
++}
++
++.adopt-banner-icon {
++  font-size: 36rpx;
++  margin-right: 16rpx;
++  color: #d46b08;
++}
+diff --git a/miniprogram/pages/info/info.js b/miniprogram/pages/info/info.js
+index 93f8693..2f5e706 100644
+--- a/miniprogram/pages/info/info.js
++++ b/miniprogram/pages/info/info.js
+@@ -29,6 +29,18 @@ Page({
+         icon: "/pages/public/images/info/btn/user.svg",
+         label: "个人主页",
+         path: "/pages/info/userInfo/userInfo",
++      }, {
++        icon: "/pages/public/images/info/btn/reward.svg",
++        label: "喂食打卡",
++        path: "/pages/feed/feedHub/feedHub",
++      }, {
++        icon: "/pages/public/images/info/btn/dashboard.svg",
++        label: "我的足迹",
++        path: "/pages/info/myFootprint/myFootprint",
++      }, {
++        icon: "/pages/public/images/info/btn/badge.svg",
++        label: "我的领养",
++        path: "/pages/info/myAdoption/myAdoption",
+       }, {
+         icon: "/pages/public/images/info/btn/badge.svg",
+         label: "徽章口袋",
+@@ -89,6 +101,17 @@ Page({
+             num: "numChkPhotos",
+             icon: "icon-photo-o"
+           },
++          {
++            name: "领养审核",
++            path: "/pages/manage/checkAdoption/checkAdoption",
++            num: "numChkAdoptions",
++            icon: "icon-home-o"
++          },
++          {
++            name: "喂食设置",
++            path: "/pages/manage/feedSettings/feedSettings",
++            icon: "icon-balance-o"
++          },
+           {
+             name: "便利贴审核",
+             path: "/pages/manage/checkComment/checkComment",
+@@ -236,12 +259,21 @@ Page({
+     const { result: numFeedbacks } = await app.mpServerless.db.collection('feedback').count({ dealed: false });
+     const { result: numImProcess } = await app.mpServerless.db.collection('photo').count(imProcessQf);
+     const { result: numMapAccessApps } = await app.mpServerless.db.collection('user').count({ 'mapAccess.status': 'pending' });
++    // 待审核领养申请（集合可能尚未创建，容错处理）
++    let numChkAdoptions = 0;
++    try {
++      const { result } = await app.mpServerless.db.collection('adoption').count({ status: 'pending' });
++      numChkAdoptions = result;
++    } catch (err) {
++      console.log('[onShow] - adoption集合尚未创建');
++    }
+     this.setData({
+       "nums.numChkPhotos": numChkPhotos,
+       "nums.numChkComments": numChkComments,
+       "nums.numFeedbacks": numFeedbacks,
+       "nums.numImProcess": numImProcess,
+       "nums.numMapAccessApps": numMapAccessApps,
++      "nums.numChkAdoptions": numChkAdoptions,
+       "showCond.manager": true,
+     });
+   },
+diff --git a/miniprogram/pages/info/myAdoption/myAdoption.js b/miniprogram/pages/info/myAdoption/myAdoption.js
+new file mode 100644
+index 0000000..9235c45
+--- /dev/null
++++ b/miniprogram/pages/info/myAdoption/myAdoption.js
+@@ -0,0 +1,86 @@
++// 我的领养申请（含状态跟踪时间线）
++import api from "../../../utils/cloudApi";
++import { formatDate } from "../../../utils/utils";
++
++const STATUS_DESC = {
++  pending: '待审核',
++  approved: '已通过',
++  rejected: '未通过',
++  cancelled: '已撤销',
++};
++
++const STATUS_CLASS = {
++  pending: 'status-pending',
++  approved: 'status-approved',
++  rejected: 'status-rejected',
++  cancelled: 'status-cancelled',
++};
++
++Page({
++  data: {
++    list: [],
++    loading: true,
++    statusDesc: STATUS_DESC,
++    statusClass: STATUS_CLASS,
++  },
++
++  async onShow() {
++    await this.loadList();
++  },
++
++  async loadList() {
++    this.setData({ loading: true });
++    try {
++      const res = await api.adoptionOp({ operation: 'listMine' });
++      if (res.result) {
++        const list = (res.data || []).map(item => ({
++          ...item,
++          apply_time_formatted: formatDate(item.apply_time, 'yyyy-MM-dd hh:mm'),
++          timeline: (item.timeline || []).map(t => ({
++            ...t,
++            time_formatted: formatDate(t.time, 'yyyy-MM-dd hh:mm'),
++            status_desc: STATUS_DESC[t.status] || t.status,
++          })),
++        }));
++        this.setData({ list, loading: false });
++      } else {
++        wx.showToast({ title: res.msg || '加载失败', icon: 'none' });
++        this.setData({ loading: false });
++      }
++    } catch (err) {
++      console.error('[loadList] - 加载我的领养申请失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  toCatDetail(e) {
++    const cat_id = e.currentTarget.dataset.cat_id;
++    wx.navigateTo({
++      url: '/pages/genealogy/detailCat/detailCat?cat_id=' + cat_id,
++    });
++  },
++
++  async cancelApply(e) {
++    const { id, index } = e.currentTarget.dataset;
++    const modalRes = await wx.showModal({
++      title: '撤销申请',
++      content: '确定要撤销这条领养申请吗？',
++    });
++    if (!modalRes.confirm) return;
++
++    wx.showLoading({ title: '处理中...' });
++    try {
++      const res = await api.adoptionOp({ operation: 'cancel', adoption_id: id });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '已撤销' : '操作失败'), icon: 'none' });
++      if (res.result) {
++        await this.loadList();
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[cancelApply] - 撤销失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++});
+diff --git a/miniprogram/pages/info/myAdoption/myAdoption.json b/miniprogram/pages/info/myAdoption/myAdoption.json
+new file mode 100644
+index 0000000..d08ee51
+--- /dev/null
++++ b/miniprogram/pages/info/myAdoption/myAdoption.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "我的领养"
++}
+diff --git a/miniprogram/pages/info/myAdoption/myAdoption.wxml b/miniprogram/pages/info/myAdoption/myAdoption.wxml
+new file mode 100644
+index 0000000..c98fdbb
+--- /dev/null
++++ b/miniprogram/pages/info/myAdoption/myAdoption.wxml
+@@ -0,0 +1,34 @@
++<!-- 我的领养申请列表 -->
++<view class="page">
++  <view class="empty" wx:if="{{!loading && list.length === 0}}">
++    <view class="empty-text">还没有领养申请</view>
++    <view class="empty-tip">在「寻找领养中」的猫猫主页可以申请领养</view>
++  </view>
++
++  <view class="adoption-card" wx:for="{{list}}" wx:key="_id">
++    <view class="card-header" bindtap="toCatDetail" data-cat_id="{{item.cat_id}}">
++      <view class="cat-name">{{item.cat_name}}</view>
++      <view class="status {{statusClass[item.status]}}">{{statusDesc[item.status]}}</view>
++    </view>
++
++    <view class="apply-time">申请时间：{{item.apply_time_formatted}}</view>
++
++    <view class="review-note" wx:if="{{item.review_note}}">审核备注：{{item.review_note}}</view>
++
++    <!-- 状态跟踪时间线 -->
++    <view class="timeline" wx:if="{{item.timeline.length}}">
++      <view class="timeline-item" wx:for="{{item.timeline}}" wx:for-item="step" wx:key="time">
++        <view class="dot {{index === item.timeline.length - 1 ? 'dot-active' : ''}}"></view>
++        <view class="step-content">
++          <view class="step-status">{{step.status_desc}}</view>
++          <view class="step-note" wx:if="{{step.note}}">{{step.note}}</view>
++          <view class="step-time">{{step.time_formatted}}</view>
++        </view>
++      </view>
++    </view>
++
++    <view class="actions">
++      <button class="btn-cancel" size="mini" wx:if="{{item.status === 'pending'}}" bindtap="cancelApply" data-id="{{item._id}}" data-index="{{index}}">撤销申请</button>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/pages/info/myAdoption/myAdoption.wxss b/miniprogram/pages/info/myAdoption/myAdoption.wxss
+new file mode 100644
+index 0000000..43ccf22
+--- /dev/null
++++ b/miniprogram/pages/info/myAdoption/myAdoption.wxss
+@@ -0,0 +1,155 @@
++.page {
++  padding: 30rpx;
++  min-height: 100vh;
++  background: #f7f7f7;
++  box-sizing: border-box;
++}
++
++.empty {
++  text-align: center;
++  padding: 120rpx 0;
++}
++
++.empty-text {
++  font-size: 32rpx;
++  color: #666;
++}
++
++.empty-tip {
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 16rpx;
++}
++
++.adoption-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 24rpx;
++}
++
++.card-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++}
++
++.cat-name {
++  font-size: 34rpx;
++  font-weight: bold;
++  color: #333;
++}
++
++.status {
++  font-size: 24rpx;
++  padding: 6rpx 20rpx;
++  border-radius: 24rpx;
++}
++
++.status-pending {
++  background: #fff7e6;
++  color: #fa8c16;
++}
++
++.status-approved {
++  background: #f6ffed;
++  color: #52c41a;
++}
++
++.status-rejected {
++  background: #fff1f0;
++  color: #f5222d;
++}
++
++.status-cancelled {
++  background: #f5f5f5;
++  color: #999;
++}
++
++.apply-time {
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 12rpx;
++}
++
++.review-note {
++  font-size: 26rpx;
++  color: #666;
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 16rpx;
++  margin-top: 16rpx;
++}
++
++.timeline {
++  margin-top: 24rpx;
++  border-top: 1rpx solid #f0f0f0;
++  padding-top: 24rpx;
++}
++
++.timeline-item {
++  display: flex;
++  position: relative;
++  padding-bottom: 28rpx;
++}
++
++.timeline-item::before {
++  content: '';
++  position: absolute;
++  left: 9rpx;
++  top: 24rpx;
++  bottom: 0;
++  width: 2rpx;
++  background: #eee;
++}
++
++.timeline-item:last-child::before {
++  display: none;
++}
++
++.dot {
++  width: 20rpx;
++  height: 20rpx;
++  border-radius: 50%;
++  background: #ddd;
++  margin-right: 24rpx;
++  flex-shrink: 0;
++}
++
++.dot-active {
++  background: #07c160;
++}
++
++.step-content {
++  flex: 1;
++}
++
++.step-status {
++  font-size: 28rpx;
++  color: #333;
++  font-weight: 500;
++}
++
++.step-note {
++  font-size: 24rpx;
++  color: #666;
++  margin-top: 6rpx;
++}
++
++.step-time {
++  font-size: 22rpx;
++  color: #999;
++  margin-top: 6rpx;
++}
++
++.actions {
++  display: flex;
++  justify-content: flex-end;
++  margin-top: 16rpx;
++}
++
++.btn-cancel {
++  color: #f5222d;
++  border: 1rpx solid #f5222d;
++  background: #fff;
++}
+diff --git a/miniprogram/pages/info/myFootprint/myFootprint.js b/miniprogram/pages/info/myFootprint/myFootprint.js
+new file mode 100644
+index 0000000..1ff0b39
+--- /dev/null
++++ b/miniprogram/pages/info/myFootprint/myFootprint.js
+@@ -0,0 +1,187 @@
++// 我的足迹：我拍的照片、拍过的猫咪、我的便利贴
++import { getCatItemMulti, getAvatar } from "../../../utils/cat";
++import { signCosUrl } from "../../../utils/common";
++import { formatDate } from "../../../utils/utils";
++import api from "../../../utils/cloudApi";
++
++const app = getApp();
++
++const TABS = [
++  { key: 'photos', name: '我拍的照片' },
++  { key: 'cats', name: '拍过的猫咪' },
++  { key: 'comments', name: '我的便利贴' },
++];
++
++Page({
++  data: {
++    tabs: TABS,
++    activeTab: 'photos',
++    loading: true,
++    // 我拍的照片
++    photos: [],
++    // 拍过的猫咪
++    cats: [],
++    // 我的便利贴
++    comments: [],
++  },
++
++  jsData: {
++    myOpenid: '',
++    loaded: {}, // 各 tab 是否已加载
++  },
++
++  async onLoad() {
++    this.jsData.myOpenid = await api.getCurrentUserOpenid();
++    if (!this.jsData.myOpenid) {
++      wx.showToast({ title: '请先登录', icon: 'none' });
++      this.setData({ loading: false });
++      return;
++    }
++    await this.loadPhotos();
++  },
++
++  switchTab(e) {
++    const key = e.currentTarget.dataset.key;
++    if (key === this.data.activeTab) return;
++    this.setData({ activeTab: key });
++
++    // 按需加载
++    if (!this.jsData.loaded[key]) {
++      if (key === 'photos') this.loadPhotos();
++      else if (key === 'cats') this.loadCats();
++      else if (key === 'comments') this.loadComments();
++    }
++  },
++
++  // 我上传过的照片（含猫咪名、上传时间，可定位猫咪主页）
++  async loadPhotos() {
++    this.setData({ loading: true });
++    try {
++      const { result: photos } = await app.mpServerless.db.collection('photo').find(
++        { _openid: this.jsData.myOpenid },
++        { sort: { create_date: -1 }, limit: 100 }
++      );
++
++      // 猫名
++      const catIds = [...new Set((photos || []).map(p => p.cat_id).filter(Boolean))];
++      const catMap = {};
++      if (catIds.length) {
++        const cats = await getCatItemMulti(catIds);
++        for (const cat of cats) {
++          if (cat) catMap[cat._id] = cat;
++        }
++      }
++
++      // 签名URL（压缩图优先，省流量）
++      const list = await Promise.all((photos || []).map(async p => ({
++        ...p,
++        cat: catMap[p.cat_id] || {},
++        url: await signCosUrl(p.photo_compressed || p.photo_id),
++        create_date_formatted: p.create_date ? formatDate(p.create_date, 'yyyy-MM-dd hh:mm') : '',
++        status_desc: p.verified ? (p.best ? '精选' : '已通过') : '待审核',
++      })));
++
++      this.jsData.loaded.photos = true;
++      this.setData({ photos: list, loading: false });
++    } catch (err) {
++      console.error('[loadPhotos] - 加载我的照片失败:', err);
++      wx.showToast({ title: '加载失败', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  // 我拍过的猫咪列表（去重）
++  async loadCats() {
++    this.setData({ loading: true });
++    try {
++      const { result: photos } = await app.mpServerless.db.collection('photo').find(
++        { _openid: this.jsData.myOpenid },
++        { limit: 500 }
++      );
++      const catIds = [...new Set((photos || []).map(p => p.cat_id).filter(Boolean))];
++
++      // 统计每只猫的照片数
++      const countMap = {};
++      for (const p of (photos || [])) {
++        if (p.cat_id) countMap[p.cat_id] = (countMap[p.cat_id] || 0) + 1;
++      }
++
++      let cats = catIds.length ? await getCatItemMulti(catIds) : [];
++      // 封面图（cat文档本身不含头像对象，需单独获取）
++      const avatars = catIds.length ? await getAvatar(catIds) : [];
++      const avatarMap = {};
++      catIds.forEach((id, i) => { avatarMap[id] = avatars[i]; });
++      cats = (cats || []).filter(c => c).map(c => ({
++        ...c,
++        avatar: avatarMap[c._id],
++        my_photo_count: countMap[c._id] || 0,
++      }));
++      // 按我拍的照片数降序
++      cats.sort((a, b) => b.my_photo_count - a.my_photo_count);
++
++      this.jsData.loaded.cats = true;
++      this.setData({ cats, loading: false });
++    } catch (err) {
++      console.error('[loadCats] - 加载拍过的猫咪失败:', err);
++      wx.showToast({ title: '加载失败', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  // 我的便利贴（含猫咪定位）
++  async loadComments() {
++    this.setData({ loading: true });
++    try {
++      const { result: comments } = await app.mpServerless.db.collection('comment').find(
++        { user_openid: this.jsData.myOpenid, deleted: { $ne: true } },
++        { sort: { create_date: -1 }, limit: 100 }
++      );
++
++      const catIds = [...new Set((comments || []).map(c => c.cat_id).filter(Boolean))];
++      const catMap = {};
++      if (catIds.length) {
++        const cats = await getCatItemMulti(catIds);
++        for (const cat of cats) {
++          if (cat) catMap[cat._id] = cat;
++        }
++      }
++
++      const list = (comments || []).map(c => ({
++        ...c,
++        cat: catMap[c.cat_id] || {},
++        datetime: c.create_date ? formatDate(new Date(c.create_date), 'yyyy-MM-dd hh:mm') : '',
++        status_desc: c.needVerify ? '待审核' : '',
++      }));
++
++      this.jsData.loaded.comments = true;
++      this.setData({ comments: list, loading: false });
++    } catch (err) {
++      console.error('[loadComments] - 加载我的便利贴失败:', err);
++      wx.showToast({ title: '加载失败', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  // 定位到猫咪主页
++  toCatDetail(e) {
++    const cat_id = e.currentTarget.dataset.cat_id;
++    if (!cat_id) return;
++    wx.navigateTo({
++      url: '/pages/genealogy/detailCat/detailCat?cat_id=' + cat_id,
++    });
++  },
++
++  // 定位到猫咪的便利贴墙
++  toCommentBoard(e) {
++    const cat_id = e.currentTarget.dataset.cat_id;
++    if (!cat_id) return;
++    wx.navigateTo({
++      url: '/pages/genealogy/commentBoard/commentBoard?cat_id=' + cat_id,
++    });
++  },
++
++  previewPhoto(e) {
++    const url = e.currentTarget.dataset.url;
++    wx.previewImage({ urls: [url] });
++  },
++});
+diff --git a/miniprogram/pages/info/myFootprint/myFootprint.json b/miniprogram/pages/info/myFootprint/myFootprint.json
+new file mode 100644
+index 0000000..8f0bceb
+--- /dev/null
++++ b/miniprogram/pages/info/myFootprint/myFootprint.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "我的足迹"
++}
+diff --git a/miniprogram/pages/info/myFootprint/myFootprint.wxml b/miniprogram/pages/info/myFootprint/myFootprint.wxml
+new file mode 100644
+index 0000000..8fa12c5
+--- /dev/null
++++ b/miniprogram/pages/info/myFootprint/myFootprint.wxml
+@@ -0,0 +1,46 @@
++<!-- 我的足迹 -->
++<view class="page">
++  <view class="tabs">
++    <view class="tab {{activeTab === item.key ? 'active' : ''}}" wx:for="{{tabs}}" wx:key="key" data-key="{{item.key}}" bindtap="switchTab">{{item.name}}</view>
++  </view>
++
++  <!-- 我拍的照片 -->
++  <block wx:if="{{activeTab === 'photos'}}">
++    <view class="empty" wx:if="{{!loading && photos.length === 0}}">还没有上传过照片</view>
++    <view class="photo-grid">
++      <view class="photo-item" wx:for="{{photos}}" wx:key="_id">
++        <image class="photo-img" src="{{item.url}}" mode="aspectFill" bindtap="previewPhoto" data-url="{{item.url}}" />
++        <view class="photo-info">
++          <view class="photo-cat" bindtap="toCatDetail" data-cat_id="{{item.cat_id}}">{{item.cat.name || '未知猫咪'}} →</view>
++          <view class="photo-meta">{{item.create_date_formatted}} · {{item.status_desc}}</view>
++        </view>
++      </view>
++    </view>
++  </block>
++
++  <!-- 拍过的猫咪 -->
++  <block wx:if="{{activeTab === 'cats'}}">
++    <view class="empty" wx:if="{{!loading && cats.length === 0}}">还没有拍过猫咪</view>
++    <view class="cat-card" wx:for="{{cats}}" wx:key="_id" bindtap="toCatDetail" data-cat_id="{{item._id}}">
++      <image class="cat-avatar" src="{{item.avatar.photo_compressed || item.avatar.photo_id}}" mode="aspectFill" wx:if="{{item.avatar}}" />
++      <view class="cat-avatar placeholder" wx:else></view>
++      <view class="cat-info">
++        <view class="cat-name">{{item.name}}</view>
++        <view class="cat-desc">{{item.campus}} {{item.area}}</view>
++      </view>
++      <view class="cat-count">{{item.my_photo_count}}张</view>
++    </view>
++  </block>
++
++  <!-- 我的便利贴 -->
++  <block wx:if="{{activeTab === 'comments'}}">
++    <view class="empty" wx:if="{{!loading && comments.length === 0}}">还没有写过便利贴</view>
++    <view class="comment-card" wx:for="{{comments}}" wx:key="_id" bindtap="toCommentBoard" data-cat_id="{{item.cat_id}}">
++      <view class="comment-content">{{item.content}}</view>
++      <view class="comment-footer">
++        <view class="comment-cat">{{item.cat.name || '未知猫咪'}}的便利贴墙 →</view>
++        <view class="comment-time">{{item.datetime}} {{item.status_desc}}</view>
++      </view>
++    </view>
++  </block>
++</view>
+diff --git a/miniprogram/pages/info/myFootprint/myFootprint.wxss b/miniprogram/pages/info/myFootprint/myFootprint.wxss
+new file mode 100644
+index 0000000..a2c2484
+--- /dev/null
++++ b/miniprogram/pages/info/myFootprint/myFootprint.wxss
+@@ -0,0 +1,148 @@
++.page {
++  min-height: 100vh;
++  background: #f7f7f7;
++  padding-bottom: 30rpx;
++}
++
++.tabs {
++  display: flex;
++  background: #fff;
++  padding: 20rpx 30rpx;
++  position: sticky;
++  top: 0;
++  z-index: 10;
++}
++
++.tab {
++  font-size: 28rpx;
++  color: #666;
++  padding: 12rpx 28rpx;
++  border-radius: 32rpx;
++  margin-right: 20rpx;
++  background: #f5f5f5;
++}
++
++.tab.active {
++  background: #ffd101;
++  color: #333;
++}
++
++.empty {
++  text-align: center;
++  color: #999;
++  font-size: 28rpx;
++  padding: 100rpx 0;
++}
++
++/* 照片网格 */
++.photo-grid {
++  display: flex;
++  flex-wrap: wrap;
++  padding: 20rpx 22rpx;
++}
++
++.photo-item {
++  width: 340rpx;
++  margin: 8rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  overflow: hidden;
++}
++
++.photo-img {
++  width: 100%;
++  height: 340rpx;
++  background: #eee;
++}
++
++.photo-info {
++  padding: 16rpx;
++}
++
++.photo-cat {
++  font-size: 26rpx;
++  color: #576b95;
++  font-weight: 500;
++}
++
++.photo-meta {
++  font-size: 22rpx;
++  color: #999;
++  margin-top: 8rpx;
++}
++
++/* 猫咪卡片 */
++.cat-card {
++  display: flex;
++  align-items: center;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin: 20rpx 30rpx 0;
++}
++
++.cat-avatar {
++  width: 100rpx;
++  height: 100rpx;
++  border-radius: 50%;
++  background: #eee;
++  flex-shrink: 0;
++}
++
++.cat-info {
++  flex: 1;
++  margin-left: 24rpx;
++}
++
++.cat-name {
++  font-size: 32rpx;
++  font-weight: bold;
++  color: #333;
++}
++
++.cat-desc {
++  font-size: 24rpx;
++  color: #999;
++  margin-top: 6rpx;
++}
++
++.cat-count {
++  font-size: 24rpx;
++  color: #fa8c16;
++  background: #fff7e6;
++  padding: 6rpx 20rpx;
++  border-radius: 24rpx;
++}
++
++/* 便利贴卡片 */
++.comment-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin: 20rpx 30rpx 0;
++}
++
++.comment-content {
++  font-size: 28rpx;
++  color: #333;
++  line-height: 1.6;
++}
++
++.comment-footer {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-top: 16rpx;
++  border-top: 1rpx solid #f5f5f5;
++  padding-top: 16rpx;
++}
++
++.comment-cat {
++  font-size: 24rpx;
++  color: #576b95;
++}
++
++.comment-time {
++  font-size: 22rpx;
++  color: #999;
++}
+diff --git a/miniprogram/pages/manage/checkAdoption/checkAdoption.js b/miniprogram/pages/manage/checkAdoption/checkAdoption.js
+new file mode 100644
+index 0000000..d83c9b1
+--- /dev/null
++++ b/miniprogram/pages/manage/checkAdoption/checkAdoption.js
+@@ -0,0 +1,141 @@
++// 领养申请审核（管理员）
++import { checkAuth } from "../../../utils/user";
++import api from "../../../utils/cloudApi";
++import { formatDate } from "../../../utils/utils";
++
++const STATUS_DESC = {
++  pending: '待审核',
++  approved: '已通过',
++  rejected: '未通过',
++  cancelled: '已撤销',
++};
++
++const TABS = [
++  { key: 'pending', name: '待审核' },
++  { key: 'approved', name: '已通过' },
++  { key: 'rejected', name: '未通过' },
++];
++
++Page({
++  data: {
++    tabs: TABS,
++    activeTab: 'pending',
++    list: [],
++    loading: false,
++    statusDesc: STATUS_DESC,
++    // 审核弹窗
++    showReviewModal: false,
++    reviewAction: '',
++    reviewNote: '',
++    reviewTarget: null,
++  },
++
++  async onLoad() {
++    if (await checkAuth(this, 1)) {
++      await this.loadList();
++    }
++  },
++
++  async onShow() {
++    if (this.data.activeTab) {
++      await this.loadList();
++    }
++  },
++
++  switchTab(e) {
++    const key = e.currentTarget.dataset.key;
++    if (key === this.data.activeTab) return;
++    this.setData({ activeTab: key });
++    this.loadList();
++  },
++
++  async loadList() {
++    this.setData({ loading: true });
++    try {
++      const res = await api.adoptionOp({
++        operation: 'list',
++        status: this.data.activeTab,
++      });
++      if (res.result) {
++        const list = (res.data || []).map(item => ({
++          ...item,
++          apply_time_formatted: formatDate(item.apply_time, 'yyyy-MM-dd hh:mm'),
++          review_time_formatted: item.review_time ? formatDate(item.review_time, 'yyyy-MM-dd hh:mm') : '',
++        }));
++        this.setData({ list, loading: false });
++      } else {
++        wx.showToast({ title: res.msg || '加载失败', icon: 'none' });
++        this.setData({ loading: false });
++      }
++    } catch (err) {
++      console.error('[loadList] - 加载领养申请失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  toCatDetail(e) {
++    const cat_id = e.currentTarget.dataset.cat_id;
++    wx.navigateTo({
++      url: '/pages/genealogy/detailCat/detailCat?cat_id=' + cat_id,
++    });
++  },
++
++  // 打开审核弹窗
++  openReview(e) {
++    const { action, index } = e.currentTarget.dataset;
++    this.setData({
++      showReviewModal: true,
++      reviewAction: action,
++      reviewNote: '',
++      reviewTarget: this.data.list[index],
++    });
++  },
++
++  closeReview() {
++    this.setData({ showReviewModal: false, reviewTarget: null });
++  },
++
++  onNoteInput(e) {
++    this.setData({ reviewNote: e.detail.value });
++  },
++
++  async confirmReview() {
++    const { reviewAction, reviewNote, reviewTarget } = this.data;
++    if (!reviewTarget) return;
++
++    if (reviewAction === 'approve') {
++      const modalRes = await wx.showModal({
++        title: '确认通过？',
++        content: `通过后「${reviewTarget.cat_name}」将被标记为已领养，同猫的其他申请会自动拒绝。`,
++      });
++      if (!modalRes.confirm) return;
++    }
++
++    wx.showLoading({ title: '处理中...' });
++    try {
++      const res = await api.adoptionOp({
++        operation: 'review',
++        adoption_id: reviewTarget._id,
++        action: reviewAction,
++        note: reviewNote.trim(),
++      });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '操作成功' : '操作失败'), icon: 'none' });
++      if (res.result) {
++        this.closeReview();
++        await this.loadList();
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[confirmReview] - 审核失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++
++  // 复制联系方式
++  copyContact(e) {
++    const contact = e.currentTarget.dataset.contact;
++    wx.setClipboardData({ data: contact });
++  },
++});
+diff --git a/miniprogram/pages/manage/checkAdoption/checkAdoption.json b/miniprogram/pages/manage/checkAdoption/checkAdoption.json
+new file mode 100644
+index 0000000..368fada
+--- /dev/null
++++ b/miniprogram/pages/manage/checkAdoption/checkAdoption.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "领养审核"
++}
+diff --git a/miniprogram/pages/manage/checkAdoption/checkAdoption.wxml b/miniprogram/pages/manage/checkAdoption/checkAdoption.wxml
+new file mode 100644
+index 0000000..fbd1624
+--- /dev/null
++++ b/miniprogram/pages/manage/checkAdoption/checkAdoption.wxml
+@@ -0,0 +1,54 @@
++<!-- 领养申请审核 -->
++<view class="page">
++  <view class="tabs">
++    <view class="tab {{activeTab === item.key ? 'active' : ''}}" wx:for="{{tabs}}" wx:key="key" data-key="{{item.key}}" bindtap="switchTab">{{item.name}}</view>
++  </view>
++
++  <view class="empty" wx:if="{{!loading && list.length === 0}}">暂无{{statusDesc[activeTab]}}的申请</view>
++
++  <view class="adoption-card" wx:for="{{list}}" wx:key="_id">
++    <view class="card-header">
++      <view class="cat-name" bindtap="toCatDetail" data-cat_id="{{item.cat_id}}">{{item.cat_name}} →</view>
++      <view class="apply-time">{{item.apply_time_formatted}}</view>
++    </view>
++
++    <view class="info-row">
++      <text class="info-label">申请人：</text>
++      <text>{{item.applicant_name}}</text>
++    </view>
++    <view class="info-row">
++      <text class="info-label">联系方式：</text>
++      <text class="contact" bindtap="copyContact" data-contact="{{item.contact}}">{{item.contact}}（点击复制）</text>
++    </view>
++    <view class="reason">{{item.reason}}</view>
++
++    <view class="review-info" wx:if="{{item.status !== 'pending'}}">
++      <view class="info-row">
++        <text class="info-label">审核时间：</text>
++        <text>{{item.review_time_formatted}}</text>
++      </view>
++      <view class="info-row" wx:if="{{item.review_note}}">
++        <text class="info-label">审核备注：</text>
++        <text>{{item.review_note}}</text>
++      </view>
++    </view>
++
++    <view class="actions" wx:if="{{item.status === 'pending'}}">
++      <button class="btn-reject" size="mini" bindtap="openReview" data-action="reject" data-index="{{index}}">拒绝</button>
++      <button class="btn-approve" size="mini" bindtap="openReview" data-action="approve" data-index="{{index}}">通过</button>
++    </view>
++  </view>
++
++  <!-- 审核备注弹窗 -->
++  <view class="modal-mask" wx:if="{{showReviewModal}}" bindtap="closeReview">
++    <view class="modal" catchtap="">
++      <view class="modal-title">{{reviewAction === 'approve' ? '通过申请' : '拒绝申请'}}</view>
++      <view class="modal-desc" wx:if="{{reviewTarget}}">申请人：{{reviewTarget.applicant_name}} → {{reviewTarget.cat_name}}</view>
++      <textarea class="modal-textarea" placeholder="审核备注（可选，申请人可见）" value="{{reviewNote}}" bindinput="onNoteInput" maxlength="200" />
++      <view class="modal-buttons">
++        <button class="modal-btn cancel" bindtap="closeReview">取消</button>
++        <button class="modal-btn confirm" bindtap="confirmReview">确认</button>
++      </view>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/pages/manage/checkAdoption/checkAdoption.wxss b/miniprogram/pages/manage/checkAdoption/checkAdoption.wxss
+new file mode 100644
+index 0000000..d61a1ec
+--- /dev/null
++++ b/miniprogram/pages/manage/checkAdoption/checkAdoption.wxss
+@@ -0,0 +1,176 @@
++.page {
++  min-height: 100vh;
++  background: #f7f7f7;
++  padding-bottom: 30rpx;
++}
++
++.tabs {
++  display: flex;
++  background: #fff;
++  padding: 20rpx 30rpx;
++  position: sticky;
++  top: 0;
++  z-index: 10;
++}
++
++.tab {
++  font-size: 28rpx;
++  color: #666;
++  padding: 12rpx 32rpx;
++  border-radius: 32rpx;
++  margin-right: 20rpx;
++  background: #f5f5f5;
++}
++
++.tab.active {
++  background: #07c160;
++  color: #fff;
++}
++
++.empty {
++  text-align: center;
++  color: #999;
++  font-size: 28rpx;
++  padding: 100rpx 0;
++}
++
++.adoption-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin: 24rpx 30rpx 0;
++}
++
++.card-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  margin-bottom: 16rpx;
++}
++
++.cat-name {
++  font-size: 34rpx;
++  font-weight: bold;
++  color: #576b95;
++}
++
++.apply-time {
++  font-size: 22rpx;
++  color: #999;
++}
++
++.info-row {
++  font-size: 26rpx;
++  color: #333;
++  margin-top: 10rpx;
++}
++
++.info-label {
++  color: #999;
++}
++
++.contact {
++  color: #576b95;
++}
++
++.reason {
++  font-size: 26rpx;
++  color: #333;
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 16rpx;
++  margin-top: 16rpx;
++  line-height: 1.6;
++}
++
++.review-info {
++  margin-top: 16rpx;
++  border-top: 1rpx solid #f0f0f0;
++  padding-top: 16rpx;
++}
++
++.actions {
++  display: flex;
++  justify-content: flex-end;
++  /* gap兼容处理：用margin代替 */
++  margin-top: 20rpx;
++}
++
++.btn-approve {
++  background: #07c160;
++  color: #fff;
++}
++
++.btn-reject {
++  background: #fff;
++  color: #f5222d;
++  border: 1rpx solid #f5222d;
++}
++
++.modal-mask {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  background: rgba(0, 0, 0, 0.5);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  z-index: 100;
++}
++
++.modal {
++  width: 600rpx;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 32rpx;
++}
++
++.modal-title {
++  font-size: 32rpx;
++  font-weight: bold;
++  text-align: center;
++}
++
++.modal-desc {
++  font-size: 26rpx;
++  color: #666;
++  text-align: center;
++  margin-top: 12rpx;
++}
++
++.modal-textarea {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 20rpx;
++  width: 100%;
++  height: 180rpx;
++  box-sizing: border-box;
++  font-size: 26rpx;
++  margin-top: 24rpx;
++}
++
++.modal-buttons {
++  display: flex;
++  /* gap兼容处理：用margin代替 */
++  margin-top: 24rpx;
++}
++
++.modal-btn {
++  flex: 1;
++  font-size: 28rpx;
++}
++
++.modal-btn.cancel {
++  background: #f5f5f5;
++  color: #666;
++}
++
++.modal-btn.confirm {
++  background: #07c160;
++  color: #fff;
++}
++
++.actions button, .modal-buttons button { margin-left: 20rpx; }
++.actions button:first-child, .modal-buttons button:first-child { margin-left: 0; }
+diff --git a/miniprogram/pages/manage/checkPhotos/checkPhotos.js b/miniprogram/pages/manage/checkPhotos/checkPhotos.js
+index dfab135..3cae0b8 100644
+--- a/miniprogram/pages/manage/checkPhotos/checkPhotos.js
++++ b/miniprogram/pages/manage/checkPhotos/checkPhotos.js
+@@ -18,6 +18,8 @@ Page({
+     campus_counts: {},
+     campusLoading: false,
+     hasPhotos: false,
++    // 转移照片：目标猫选择弹窗
++    showTransferSelect: false,
+   },
+ 
+   jsData: {
+@@ -291,6 +293,13 @@ Page({
+     if (total_num == 0) {
+       return false;
+     }
++
++    // 有转移标记时，先选择目标猫
++    if (nums['transfer'] > 0) {
++      this.setData({ showTransferSelect: true });
++      return;
++    }
++
+     var modalRes = await wx.showModal({
+       title: '确定批量审核？',
+       content: `删除${nums['delete'] || 0}张，通过${nums['pass'] || 0}张，精选${nums['best'] || 0}张`,
+@@ -305,8 +314,42 @@ Page({
+     cache.setCacheItem("checkPhotoCampus", active_campus, cache.cacheTime.checkPhotoCampus);
+   },
+ 
++  // 选择转移目标猫
++  async onTransferTargetSelect(e) {
++    const targetCat = e.detail;
++    this.setData({ showTransferSelect: false });
++    if (!targetCat || !targetCat._id) {
++      return;
++    }
++
++    var active_campus = this.data.active_campus;
++    var photos = this.data.campus_list[active_campus];
++    var nums = {};
++    for (const photo of photos) {
++      if (!photo.mark || photo.mark == "") continue;
++      nums[photo.mark] = (nums[photo.mark] || 0) + 1;
++    }
++
++    var modalRes = await wx.showModal({
++      title: '确定批量审核？',
++      content: `删除${nums['delete'] || 0}张，通过${nums['pass'] || 0}张，精选${nums['best'] || 0}张，转移${nums['transfer'] || 0}张到「${targetCat.name}」`,
++    });
++
++    if (modalRes.confirm) {
++      console.log('[onTransferTargetSelect] - 开始处理，转移目标:', targetCat.name);
++      await this.doCheckMulti(targetCat._id);
++    }
++
++    // 记录一下最后一次审批的cache
++    cache.setCacheItem("checkPhotoCampus", active_campus, cache.cacheTime.checkPhotoCampus);
++  },
++
++  onTransferSelectClose() {
++    this.setData({ showTransferSelect: false });
++  },
++
+   // 开始批量处理
+-  async doCheckMulti() {
++  async doCheckMulti(transfer_cat_id) {
+     wx.showLoading({
+       title: '处理中...',
+     })
+@@ -324,6 +367,30 @@ Page({
+         continue;
+       }
+ 
++      // 转移：审核通过并移到目标猫名下
++      if (photo.mark == "transfer") {
++        if (!transfer_cat_id) {
++          console.error('[doCheckMulti] - 缺少转移目标猫');
++          new_photos.push(photo);
++          continue;
++        }
++        // 先通过审核，再转移归属
++        all_queries.push((async () => {
++          await api.managePhoto({
++            type: "check",
++            photo: photo,
++            best: false,
++          });
++          await api.managePhoto({
++            type: "transfer",
++            photo: photo,
++            target_cat_id: transfer_cat_id,
++          });
++        })());
++        this.addNotice(photo, true);
++        continue;
++      }
++
+       // 准备数据
+       var data = {
+         type: mask2type[photo.mark],
+diff --git a/miniprogram/pages/manage/checkPhotos/checkPhotos.json b/miniprogram/pages/manage/checkPhotos/checkPhotos.json
+index 00d8180..ce33312 100644
+--- a/miniprogram/pages/manage/checkPhotos/checkPhotos.json
++++ b/miniprogram/pages/manage/checkPhotos/checkPhotos.json
+@@ -1,6 +1,7 @@
+ {
+   "usingComponents": {
+-    "no-auth": "/components/noAuth/noAuth"
++    "no-auth": "/components/noAuth/noAuth",
++    "search-cat": "/components/searchCat/searchCat"
+   },
+   "navigationBarTitleText": "管理审核"
+ }
+\ No newline at end of file
+diff --git a/miniprogram/pages/manage/checkPhotos/checkPhotos.wxml b/miniprogram/pages/manage/checkPhotos/checkPhotos.wxml
+index 90254d7..a1f9ca4 100644
+--- a/miniprogram/pages/manage/checkPhotos/checkPhotos.wxml
++++ b/miniprogram/pages/manage/checkPhotos/checkPhotos.wxml
+@@ -5,7 +5,7 @@
+ </wxs>
+ 
+ <block wx:if="{{auth}}">
+-  <view id='total-count'><text>先逐张标记处理方式，再点击“批量审核”。\n图片可以放大，点击名字跳转猫猫详情。\n每次展示前20张，注意流量消耗哈。</text></view>
++  <view id='total-count'><text>先逐张标记处理方式，再点击“批量审核”。\n图片可以放大，点击名字跳转猫猫详情。\n标记“转移”的照片可批量移到另一只猫名下。</text></view>
+   <view class="campus-list">
+     <view class="campus {{index == active_campus ? 'active': ''}}" bindtap="bindClickCampus" data-key="{{index}}"
+       wx:for="{{campus_list}}" wx:key="key">{{index}}（{{campus_counts[index] || 0}}）</view>
+@@ -27,6 +27,7 @@
+           <view class="button delete {{item.mark == 'delete' ? 'marked' : ''}}" bindtap='bindMark' data-index='{{index}}' data-type="delete">删除</view>
+           <view class="button pass {{item.mark == 'pass' ? 'marked' : ''}}" bindtap='bindMark' data-index='{{index}}' data-type="pass">通过</view>
+           <view class="button best {{item.mark == 'best' ? 'marked' : ''}}" bindtap='bindMark' data-index='{{index}}' data-type="best">精选</view>
++          <view class="button transfer {{item.mark == 'transfer' ? 'marked' : ''}}" bindtap='bindMark' data-index='{{index}}' data-type="transfer">转移</view>
+         </view>
+       </view>
+     </view>
+@@ -38,5 +39,8 @@
+   
+ </block>
+ 
++<!-- 转移目标猫选择 -->
++<search-cat show="{{showTransferSelect}}" bind:select="onTransferTargetSelect" bind:close="onTransferSelectClose"></search-cat>
++
+ <!-- 未授权提示 -->
+ <no-auth wx:else tip-text="{{tipText}}"></no-auth>
+\ No newline at end of file
+diff --git a/miniprogram/pages/manage/checkPhotos/checkPhotos.wxss b/miniprogram/pages/manage/checkPhotos/checkPhotos.wxss
+index 9abacbe..b4f1ea9 100644
+--- a/miniprogram/pages/manage/checkPhotos/checkPhotos.wxss
++++ b/miniprogram/pages/manage/checkPhotos/checkPhotos.wxss
+@@ -93,6 +93,14 @@ image {
+   background-color: var(--color-primary);
+   color: white;
+ }
++.button.transfer {
++  color: #722ed1;
++}
++.button.transfer.marked {
++  border-color: #531dab;
++  background-color: #722ed1;
++  color: white;
++}
+ 
+ .label {
+   font-size: 24rpx;
+diff --git a/miniprogram/pages/manage/feedSettings/feedSettings.js b/miniprogram/pages/manage/feedSettings/feedSettings.js
+new file mode 100644
+index 0000000..0634bdc
+--- /dev/null
++++ b/miniprogram/pages/manage/feedSettings/feedSettings.js
+@@ -0,0 +1,134 @@
++// 喂食设置（管理员）：自定义打卡地点、零食类型
++import { checkAuth } from "../../../utils/user";
++import api from "../../../utils/cloudApi";
++
++Page({
++  data: {
++    locations: [],
++    snackTypes: [],
++    newLocation: '',
++    newSnackType: '',
++    loading: true,
++  },
++
++  async onLoad() {
++    if (await checkAuth(this, 2)) {
++      await this.loadAll();
++    }
++  },
++
++  async loadAll() {
++    this.setData({ loading: true });
++    await Promise.all([this.loadLocations(), this.loadSnackTypes()]);
++    this.setData({ loading: false });
++  },
++
++  async loadLocations() {
++    try {
++      const res = await api.feedOp({ operation: 'getLocations' });
++      if (res.result) {
++        this.setData({ locations: res.data || [] });
++      }
++    } catch (err) {
++      console.error('[loadLocations] - 失败:', err);
++    }
++  },
++
++  async loadSnackTypes() {
++    try {
++      const res = await api.feedOp({ operation: 'getSnackTypes' });
++      if (res.result) {
++        this.setData({ snackTypes: res.data || [] });
++      }
++    } catch (err) {
++      console.error('[loadSnackTypes] - 失败:', err);
++    }
++  },
++
++  onInput(e) {
++    const field = e.currentTarget.dataset.field;
++    this.setData({ [field]: e.detail.value });
++  },
++
++  async addLocation() {
++    const location = this.data.newLocation.trim();
++    if (!location) {
++      wx.showToast({ title: '请输入地点名称', icon: 'none' });
++      return;
++    }
++    wx.showLoading({ title: '添加中...' });
++    try {
++      const res = await api.feedOp({ operation: 'addLocation', location });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '添加成功' : '添加失败'), icon: 'none' });
++      if (res.result) {
++        this.setData({ locations: res.data, newLocation: '' });
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[addLocation] - 失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++
++  async removeLocation(e) {
++    const location = e.currentTarget.dataset.location;
++    const modalRes = await wx.showModal({
++      title: '删除地点',
++      content: `确定删除「${location}」吗？已打卡记录中的地点不受影响。`,
++    });
++    if (!modalRes.confirm) return;
++
++    try {
++      const res = await api.feedOp({ operation: 'removeLocation', location });
++      wx.showToast({ title: res.msg || (res.result ? '已删除' : '删除失败'), icon: 'none' });
++      if (res.result) {
++        this.setData({ locations: res.data });
++      }
++    } catch (err) {
++      console.error('[removeLocation] - 失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++
++  async addSnackType() {
++    const type = this.data.newSnackType.trim();
++    if (!type) {
++      wx.showToast({ title: '请输入类型名称', icon: 'none' });
++      return;
++    }
++    wx.showLoading({ title: '添加中...' });
++    try {
++      const res = await api.feedOp({ operation: 'addSnackType', type });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '添加成功' : '添加失败'), icon: 'none' });
++      if (res.result) {
++        this.setData({ snackTypes: res.data, newSnackType: '' });
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[addSnackType] - 失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++
++  async removeSnackType(e) {
++    const type = e.currentTarget.dataset.type;
++    const modalRes = await wx.showModal({
++      title: '删除零食类型',
++      content: `确定删除「${type}」吗？已有打卡记录使用的类型无法删除。`,
++    });
++    if (!modalRes.confirm) return;
++
++    try {
++      const res = await api.feedOp({ operation: 'removeSnackType', type });
++      wx.showToast({ title: res.msg || (res.result ? '已删除' : '删除失败'), icon: 'none' });
++      if (res.result) {
++        this.setData({ snackTypes: res.data });
++      }
++    } catch (err) {
++      console.error('[removeSnackType] - 失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++});
+diff --git a/miniprogram/pages/manage/feedSettings/feedSettings.json b/miniprogram/pages/manage/feedSettings/feedSettings.json
+new file mode 100644
+index 0000000..224f31a
+--- /dev/null
++++ b/miniprogram/pages/manage/feedSettings/feedSettings.json
+@@ -0,0 +1,6 @@
++{
++  "usingComponents": {
++    "no-auth": "/components/noAuth/noAuth"
++  },
++  "navigationBarTitleText": "喂食设置"
++}
+diff --git a/miniprogram/pages/manage/feedSettings/feedSettings.wxml b/miniprogram/pages/manage/feedSettings/feedSettings.wxml
+new file mode 100644
+index 0000000..d4a1b72
+--- /dev/null
++++ b/miniprogram/pages/manage/feedSettings/feedSettings.wxml
+@@ -0,0 +1,44 @@
++<!-- 喂食设置：打卡地点 + 零食类型 -->
++<block wx:if="{{auth}}">
++  <view class="page">
++    <!-- 打卡地点 -->
++    <view class="section">
++      <view class="section-title">打卡地点</view>
++      <view class="section-desc">用户在喂食/零食打卡时从列表中选择地点，建议按校区习惯命名，如「图书馆后草坪」。</view>
++
++      <view class="tag-list">
++        <view class="tag" wx:for="{{locations}}" wx:key="*this">
++          {{item}}
++          <view class="tag-close" bindtap="removeLocation" data-location="{{item}}">×</view>
++        </view>
++        <view class="empty-tip" wx:if="{{!loading && locations.length === 0}}">还没有设置地点，用户打卡时需手动输入</view>
++      </view>
++
++      <view class="add-row">
++        <input class="add-input" placeholder="新地点名称" value="{{newLocation}}" data-field="newLocation" bindinput="onInput" confirm-type="done" bindconfirm="addLocation" />
++        <button class="add-btn" size="mini" bindtap="addLocation">添加</button>
++      </view>
++    </view>
++
++    <!-- 零食类型 -->
++    <view class="section">
++      <view class="section-title">零食类型</view>
++      <view class="section-desc">零食打卡时可选的类型，默认为猫条、罐头、冻干。已有打卡记录使用的类型无法删除。</view>
++
++      <view class="tag-list">
++        <view class="tag snack" wx:for="{{snackTypes}}" wx:key="*this">
++          {{item}}
++          <view class="tag-close" bindtap="removeSnackType" data-type="{{item}}">×</view>
++        </view>
++      </view>
++
++      <view class="add-row">
++        <input class="add-input" placeholder="新零食类型，如：猫草" value="{{newSnackType}}" data-field="newSnackType" bindinput="onInput" confirm-type="done" bindconfirm="addSnackType" />
++        <button class="add-btn snack-btn" size="mini" bindtap="addSnackType">添加</button>
++      </view>
++    </view>
++  </view>
++</block>
++
++<!-- 未授权提示 -->
++<no-auth wx:else tip-text="{{tipText}}"></no-auth>
+diff --git a/miniprogram/pages/manage/feedSettings/feedSettings.wxss b/miniprogram/pages/manage/feedSettings/feedSettings.wxss
+new file mode 100644
+index 0000000..bbbb300
+--- /dev/null
++++ b/miniprogram/pages/manage/feedSettings/feedSettings.wxss
+@@ -0,0 +1,87 @@
++.page {
++  padding: 30rpx;
++  min-height: 100vh;
++  background: #f7f7f7;
++  box-sizing: border-box;
++}
++
++.section {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 28rpx;
++  margin-bottom: 28rpx;
++}
++
++.section-title {
++  font-size: 32rpx;
++  font-weight: bold;
++  color: #333;
++}
++
++.section-desc {
++  font-size: 24rpx;
++  color: #999;
++  line-height: 1.6;
++  margin-top: 12rpx;
++}
++
++.tag-list {
++  display: flex;
++  flex-wrap: wrap;
++  margin-top: 24rpx;
++}
++
++.tag {
++  display: flex;
++  align-items: center;
++  font-size: 26rpx;
++  color: #d46b08;
++  background: #fff7e6;
++  border: 1rpx solid #ffd591;
++  border-radius: 28rpx;
++  padding: 8rpx 20rpx;
++  margin: 0 16rpx 16rpx 0;
++}
++
++.tag.snack {
++  color: #eb2f96;
++  background: #fff0f6;
++  border-color: #ffadd2;
++}
++
++.tag-close {
++  font-size: 32rpx;
++  margin-left: 12rpx;
++  line-height: 1;
++  opacity: 0.6;
++}
++
++.empty-tip {
++  font-size: 24rpx;
++  color: #bbb;
++}
++
++.add-row {
++  display: flex;
++  align-items: center;
++  margin-top: 8rpx;
++}
++
++.add-input {
++  flex: 1;
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 16rpx 24rpx;
++  font-size: 28rpx;
++  margin-right: 20rpx;
++}
++
++.add-btn {
++  background: #fa8c16;
++  color: #fff;
++  flex-shrink: 0;
++}
++
++.add-btn.snack-btn {
++  background: #eb2f96;
++}
+diff --git a/miniprogram/pages/manage/medicalManage/medicalManage.js b/miniprogram/pages/manage/medicalManage/medicalManage.js
+new file mode 100644
+index 0000000..0976a86
+--- /dev/null
++++ b/miniprogram/pages/manage/medicalManage/medicalManage.js
+@@ -0,0 +1,207 @@
++// 医疗记录管理（管理员）：绝育、就诊、驱虫、伤病等
++import { checkAuth } from "../../../utils/user";
++import { getCatItem } from "../../../utils/cat";
++import api from "../../../utils/cloudApi";
++import { formatDate } from "../../../utils/utils";
++
++const TYPE_OPTIONS = [
++  { key: 'sterilize', name: '绝育' },
++  { key: 'clinic', name: '就诊' },
++  { key: 'deworm', name: '驱虫' },
++  { key: 'injury', name: '伤病' },
++  { key: 'other', name: '其他' },
++];
++
++Page({
++  data: {
++    cat: {},
++    records: [],
++    loading: true,
++    typeOptions: TYPE_OPTIONS,
++    typeNameMap: {
++      sterilize: '绝育',
++      clinic: '就诊',
++      deworm: '驱虫',
++      injury: '伤病',
++      other: '其他',
++    },
++    // 编辑弹窗
++    showEditModal: false,
++    editingId: '',   // 空串表示新增
++    form: {
++      typeIndex: 0,
++      title: '',
++      hospital: '',
++      record_date: '',
++      description: '',
++    },
++    submitting: false,
++  },
++
++  jsData: {
++    cat_id: '',
++  },
++
++  async onLoad(options) {
++    this.jsData.cat_id = options.cat_id;
++    if (!this.jsData.cat_id) {
++      wx.showToast({ title: '缺少猫咪信息', icon: 'none' });
++      setTimeout(() => wx.navigateBack(), 1500);
++      return;
++    }
++    if (!(await checkAuth(this, 2))) {
++      return;
++    }
++
++    const cat = await getCatItem(this.jsData.cat_id);
++    this.setData({ cat: cat || {} });
++    if (cat && cat.name) {
++      wx.setNavigationBarTitle({ title: `${cat.name}的医疗记录` });
++    }
++    await this.loadRecords();
++  },
++
++  async loadRecords() {
++    try {
++      const res = await api.medicalOp({
++        operation: 'list',
++        cat_id: this.jsData.cat_id,
++      });
++      if (res.result) {
++        const records = (res.data || []).map(r => ({
++          ...r,
++          record_date_formatted: r.record_date ? formatDate(r.record_date, 'yyyy-MM-dd') : '',
++        }));
++        this.setData({ records, loading: false });
++      } else {
++        wx.showToast({ title: res.msg || '加载失败', icon: 'none' });
++        this.setData({ loading: false });
++      }
++    } catch (err) {
++      console.error('[loadRecords] - 加载医疗记录失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++      this.setData({ loading: false });
++    }
++  },
++
++  // 打开新增弹窗
++  addRecord() {
++    this.setData({
++      showEditModal: true,
++      editingId: '',
++      form: {
++        typeIndex: 0,
++        title: '',
++        hospital: '',
++        record_date: formatDate(new Date(), 'yyyy-MM-dd'),
++        description: '',
++      },
++    });
++  },
++
++  // 打开编辑弹窗
++  editRecord(e) {
++    const record = this.data.records[e.currentTarget.dataset.index];
++    const typeIndex = Math.max(0, TYPE_OPTIONS.findIndex(t => t.key === record.type));
++    this.setData({
++      showEditModal: true,
++      editingId: record._id,
++      form: {
++        typeIndex,
++        title: record.title || '',
++        hospital: record.hospital || '',
++        record_date: record.record_date ? formatDate(record.record_date, 'yyyy-MM-dd') : '',
++        description: record.description || '',
++      },
++    });
++  },
++
++  closeEdit() {
++    this.setData({ showEditModal: false });
++  },
++
++  onTypeChange(e) {
++    this.setData({ 'form.typeIndex': Number(e.detail.value) });
++  },
++
++  onDateChange(e) {
++    this.setData({ 'form.record_date': e.detail.value });
++  },
++
++  onInput(e) {
++    const field = e.currentTarget.dataset.field;
++    this.setData({ [`form.${field}`]: e.detail.value });
++  },
++
++  async saveRecord() {
++    const { form, editingId, submitting } = this.data;
++    if (submitting) return;
++
++    if (!form.record_date) {
++      wx.showToast({ title: '请选择日期', icon: 'none' });
++      return;
++    }
++    const type = TYPE_OPTIONS[form.typeIndex].key;
++    if (type !== 'sterilize' && !form.title.trim()) {
++      wx.showToast({ title: '请填写标题', icon: 'none' });
++      return;
++    }
++
++    this.setData({ submitting: true });
++    wx.showLoading({ title: '保存中...' });
++
++    const data = {
++      type,
++      title: form.title.trim() || TYPE_OPTIONS[form.typeIndex].name,
++      hospital: form.hospital.trim(),
++      record_date: form.record_date,
++      description: form.description.trim(),
++    };
++
++    try {
++      let res;
++      if (editingId) {
++        res = await api.medicalOp({ operation: 'update', record_id: editingId, data });
++      } else {
++        data.cat_id = this.jsData.cat_id;
++        res = await api.medicalOp({ operation: 'add', data });
++      }
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '保存成功' : '保存失败'), icon: 'none' });
++      if (res.result) {
++        this.closeEdit();
++        await this.loadRecords();
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[saveRecord] - 保存失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    } finally {
++      this.setData({ submitting: false });
++    }
++  },
++
++  async removeRecord(e) {
++    const { id, index } = e.currentTarget.dataset;
++    const record = this.data.records[index];
++    const modalRes = await wx.showModal({
++      title: '删除记录',
++      content: `确定删除「${record.title || this.data.typeNameMap[record.type]}」这条记录吗？`,
++    });
++    if (!modalRes.confirm) return;
++
++    wx.showLoading({ title: '删除中...' });
++    try {
++      const res = await api.medicalOp({ operation: 'remove', record_id: id });
++      wx.hideLoading();
++      wx.showToast({ title: res.msg || (res.result ? '已删除' : '删除失败'), icon: 'none' });
++      if (res.result) {
++        await this.loadRecords();
++      }
++    } catch (err) {
++      wx.hideLoading();
++      console.error('[removeRecord] - 删除失败:', err);
++      wx.showToast({ title: '网络错误', icon: 'none' });
++    }
++  },
++});
+diff --git a/miniprogram/pages/manage/medicalManage/medicalManage.json b/miniprogram/pages/manage/medicalManage/medicalManage.json
+new file mode 100644
+index 0000000..0a38a1c
+--- /dev/null
++++ b/miniprogram/pages/manage/medicalManage/medicalManage.json
+@@ -0,0 +1,4 @@
++{
++  "usingComponents": {},
++  "navigationBarTitleText": "医疗记录管理"
++}
+diff --git a/miniprogram/pages/manage/medicalManage/medicalManage.wxml b/miniprogram/pages/manage/medicalManage/medicalManage.wxml
+new file mode 100644
+index 0000000..afb0625
+--- /dev/null
++++ b/miniprogram/pages/manage/medicalManage/medicalManage.wxml
+@@ -0,0 +1,63 @@
++<!-- 医疗记录管理 -->
++<view class="page">
++  <view class="add-bar">
++    <button class="add-btn" bindtap="addRecord">+ 添加医疗记录</button>
++  </view>
++
++  <view class="empty" wx:if="{{!loading && records.length === 0}}">暂无医疗记录</view>
++
++  <view class="record-card" wx:for="{{records}}" wx:key="_id">
++    <view class="record-header">
++      <view class="type-tag type-{{item.type}}">{{typeNameMap[item.type]}}</view>
++      <view class="record-date">{{item.record_date_formatted}}</view>
++    </view>
++    <view class="record-title">{{item.title}}</view>
++    <view class="record-info" wx:if="{{item.hospital}}">医院/地点：{{item.hospital}}</view>
++    <view class="record-info" wx:if="{{item.description}}">{{item.description}}</view>
++    <view class="record-actions">
++      <button size="mini" bindtap="editRecord" data-index="{{index}}">编辑</button>
++      <button size="mini" class="btn-delete" bindtap="removeRecord" data-id="{{item._id}}" data-index="{{index}}">删除</button>
++    </view>
++  </view>
++
++  <!-- 编辑弹窗 -->
++  <view class="modal-mask" wx:if="{{showEditModal}}" bindtap="closeEdit">
++    <view class="modal" catchtap="">
++      <view class="modal-title">{{editingId ? '编辑记录' : '添加记录'}}</view>
++
++      <view class="form-item">
++        <view class="label">类型</view>
++        <picker range="{{typeOptions}}" range-key="name" value="{{form.typeIndex}}" bindchange="onTypeChange">
++          <view class="picker">{{typeOptions[form.typeIndex].name}} ▾</view>
++        </picker>
++      </view>
++
++      <view class="form-item" wx:if="{{typeOptions[form.typeIndex].key !== 'sterilize'}}">
++        <view class="label">标题</view>
++        <input class="input" placeholder="如：猫瘟治疗、眼部发炎" value="{{form.title}}" data-field="title" bindinput="onInput" />
++      </view>
++
++      <view class="form-item">
++        <view class="label">日期</view>
++        <picker mode="date" value="{{form.record_date}}" bindchange="onDateChange">
++          <view class="picker">{{form.record_date || '请选择日期'}} ▾</view>
++        </picker>
++      </view>
++
++      <view class="form-item">
++        <view class="label">医院/地点（可选）</view>
++        <input class="input" placeholder="就诊医院或处理地点" value="{{form.hospital}}" data-field="hospital" bindinput="onInput" />
++      </view>
++
++      <view class="form-item">
++        <view class="label">备注（可选）</view>
++        <textarea class="textarea" placeholder="病情、用药、恢复情况等" value="{{form.description}}" data-field="description" bindinput="onInput" maxlength="300" />
++      </view>
++
++      <view class="modal-buttons">
++        <button class="modal-btn cancel" bindtap="closeEdit">取消</button>
++        <button class="modal-btn confirm" bindtap="saveRecord" disabled="{{submitting}}">保存</button>
++      </view>
++    </view>
++  </view>
++</view>
+diff --git a/miniprogram/pages/manage/medicalManage/medicalManage.wxss b/miniprogram/pages/manage/medicalManage/medicalManage.wxss
+new file mode 100644
+index 0000000..295fa6d
+--- /dev/null
++++ b/miniprogram/pages/manage/medicalManage/medicalManage.wxss
+@@ -0,0 +1,171 @@
++.page {
++  padding: 30rpx;
++  min-height: 100vh;
++  background: #f7f7f7;
++  box-sizing: border-box;
++}
++
++.add-bar {
++  margin-bottom: 24rpx;
++}
++
++.add-btn {
++  background: #07c160;
++  color: #fff;
++  font-size: 30rpx;
++  border-radius: 44rpx;
++}
++
++.empty {
++  text-align: center;
++  color: #999;
++  font-size: 28rpx;
++  padding: 100rpx 0;
++}
++
++.record-card {
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 24rpx;
++  margin-bottom: 24rpx;
++}
++
++.record-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++}
++
++.type-tag {
++  font-size: 22rpx;
++  padding: 4rpx 20rpx;
++  border-radius: 24rpx;
++  color: #fff;
++  background: #999;
++}
++
++.type-sterilize { background: #722ed1; }
++.type-clinic { background: #f5222d; }
++.type-deworm { background: #13c2c2; }
++.type-injury { background: #fa8c16; }
++.type-other { background: #999; }
++
++.record-date {
++  font-size: 24rpx;
++  color: #999;
++}
++
++.record-title {
++  font-size: 32rpx;
++  font-weight: bold;
++  color: #333;
++  margin-top: 16rpx;
++}
++
++.record-info {
++  font-size: 26rpx;
++  color: #666;
++  margin-top: 10rpx;
++  line-height: 1.5;
++}
++
++.record-actions {
++  display: flex;
++  justify-content: flex-end;
++  /* gap兼容处理：用margin代替 */
++  margin-top: 20rpx;
++}
++
++.btn-delete {
++  color: #f5222d;
++  border: 1rpx solid #f5222d;
++  background: #fff;
++}
++
++.modal-mask {
++  position: fixed;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  background: rgba(0, 0, 0, 0.5);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  z-index: 100;
++}
++
++.modal {
++  width: 640rpx;
++  max-height: 80vh;
++  overflow-y: auto;
++  background: #fff;
++  border-radius: 16rpx;
++  padding: 32rpx;
++}
++
++.modal-title {
++  font-size: 32rpx;
++  font-weight: bold;
++  text-align: center;
++  margin-bottom: 20rpx;
++}
++
++.form-item {
++  margin-bottom: 20rpx;
++}
++
++.label {
++  font-size: 26rpx;
++  color: #666;
++  margin-bottom: 12rpx;
++}
++
++.input {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++}
++
++.textarea {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++  width: 100%;
++  height: 160rpx;
++  box-sizing: border-box;
++}
++
++.picker {
++  background: #f7f7f7;
++  border-radius: 12rpx;
++  padding: 18rpx 24rpx;
++  font-size: 28rpx;
++  color: #333;
++}
++
++.modal-buttons {
++  display: flex;
++  /* gap兼容处理：用margin代替 */
++  margin-top: 28rpx;
++}
++
++.modal-btn {
++  flex: 1;
++  font-size: 28rpx;
++}
++
++.modal-btn.cancel {
++  background: #f5f5f5;
++  color: #666;
++}
++
++.modal-btn.confirm {
++  background: #07c160;
++  color: #fff;
++}
++
++.record-actions button, .modal-buttons button { margin-left: 20rpx; }
++.record-actions button:first-child, .modal-buttons button:first-child { margin-left: 0; }
+diff --git a/miniprogram/utils/cloudApi.js b/miniprogram/utils/cloudApi.js
+index 868d5e6..7b77d18 100644
+--- a/miniprogram/utils/cloudApi.js
++++ b/miniprogram/utils/cloudApi.js
+@@ -236,6 +236,39 @@ async function vaccineOp(options) {
+   })).result
+ }
+ 
++// 领养流程相关操作
++async function adoptionOp(options) {
++  const app = getApp();
++  const openid = await getCurrentUserOpenid();
++  return (await app.mpServerless.function.invoke('unionOp', {
++    ...options,
++    openid: openid,
++    unionAction: "adoptionOp",
++  })).result
++}
++
++// 医疗记录相关操作
++async function medicalOp(options) {
++  const app = getApp();
++  const openid = await getCurrentUserOpenid();
++  return (await app.mpServerless.function.invoke('unionOp', {
++    ...options,
++    openid: openid,
++    unionAction: "medicalOp",
++  })).result
++}
++
++// 喂食打卡相关操作
++async function feedOp(options) {
++  const app = getApp();
++  const openid = await getCurrentUserOpenid();
++  return (await app.mpServerless.function.invoke('unionOp', {
++    ...options,
++    openid: openid,
++    unionAction: "feedOp",
++  })).result
++}
++
+ // 更新猫的关系
+ async function catRelationOp(options) {
+   const app = getApp();
+@@ -328,6 +361,9 @@ module.exports = {
+   getCatStats,
+   updateFollowCats,
+   vaccineOp,
++  adoptionOp,
++  medicalOp,
++  feedOp,
+   catRelationOp,
+   manageRelationRules,
+   initVaccineTypes,

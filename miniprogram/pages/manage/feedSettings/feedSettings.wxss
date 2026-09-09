@@ -1,0 +1,87 @@
+.page {
+  padding: 30rpx;
+  min-height: 100vh;
+  background: #f7f7f7;
+  box-sizing: border-box;
+}
+
+.section {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 28rpx;
+}
+
+.section-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.section-desc {
+  font-size: 24rpx;
+  color: #999;
+  line-height: 1.6;
+  margin-top: 12rpx;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 24rpx;
+}
+
+.tag {
+  display: flex;
+  align-items: center;
+  font-size: 26rpx;
+  color: #d46b08;
+  background: #fff7e6;
+  border: 1rpx solid #ffd591;
+  border-radius: 28rpx;
+  padding: 8rpx 20rpx;
+  margin: 0 16rpx 16rpx 0;
+}
+
+.tag.snack {
+  color: #eb2f96;
+  background: #fff0f6;
+  border-color: #ffadd2;
+}
+
+.tag-close {
+  font-size: 32rpx;
+  margin-left: 12rpx;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.empty-tip {
+  font-size: 24rpx;
+  color: #bbb;
+}
+
+.add-row {
+  display: flex;
+  align-items: center;
+  margin-top: 8rpx;
+}
+
+.add-input {
+  flex: 1;
+  background: #f7f7f7;
+  border-radius: 12rpx;
+  padding: 16rpx 24rpx;
+  font-size: 28rpx;
+  margin-right: 20rpx;
+}
+
+.add-btn {
+  background: #fa8c16;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.add-btn.snack-btn {
+  background: #eb2f96;
+}

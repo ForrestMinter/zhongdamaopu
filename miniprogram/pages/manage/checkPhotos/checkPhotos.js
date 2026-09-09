@@ -18,6 +18,8 @@ Page({
     campus_counts: {},
     campusLoading: false,
     hasPhotos: false,
+    // 转移照片：目标猫选择弹窗
+    showTransferSelect: false,
   },
 
   jsData: {
@@ -291,6 +293,13 @@ Page({
     if (total_num == 0) {
       return false;
     }
+
+    // 有转移标记时，先选择目标猫
+    if (nums['transfer'] > 0) {
+      this.setData({ showTransferSelect: true });
+      return;
+    }
+
     var modalRes = await wx.showModal({
       title: '确定批量审核？',
       content: `删除${nums['delete'] || 0}张，通过${nums['pass'] || 0}张，精选${nums['best'] || 0}张`,
@@ -305,8 +314,42 @@ Page({
     cache.setCacheItem("checkPhotoCampus", active_campus, cache.cacheTime.checkPhotoCampus);
   },
 
+  // 选择转移目标猫
+  async onTransferTargetSelect(e) {
+    const targetCat = e.detail;
+    this.setData({ showTransferSelect: false });
+    if (!targetCat || !targetCat._id) {
+      return;
+    }
+
+    var active_campus = this.data.active_campus;
+    var photos = this.data.campus_list[active_campus];
+    var nums = {};
+    for (const photo of photos) {
+      if (!photo.mark || photo.mark == "") continue;
+      nums[photo.mark] = (nums[photo.mark] || 0) + 1;
+    }
+
+    var modalRes = await wx.showModal({
+      title: '确定批量审核？',
+      content: `删除${nums['delete'] || 0}张，通过${nums['pass'] || 0}张，精选${nums['best'] || 0}张，转移${nums['transfer'] || 0}张到「${targetCat.name}」`,
+    });
+
+    if (modalRes.confirm) {
+      console.log('[onTransferTargetSelect] - 开始处理，转移目标:', targetCat.name);
+      await this.doCheckMulti(targetCat._id);
+    }
+
+    // 记录一下最后一次审批的cache
+    cache.setCacheItem("checkPhotoCampus", active_campus, cache.cacheTime.checkPhotoCampus);
+  },
+
+  onTransferSelectClose() {
+    this.setData({ showTransferSelect: false });
+  },
+
   // 开始批量处理
-  async doCheckMulti() {
+  async doCheckMulti(transfer_cat_id) {
     wx.showLoading({
       title: '处理中...',
     })
@@ -318,9 +361,45 @@ Page({
       "best": "check",
     }
     var all_queries = [], new_photos = [];
+    var transferFailCount = 0;
     for (const photo of photos) {
       if (!photo.mark || photo.mark == "") {
         new_photos.push(photo);
+        continue;
+      }
+
+      // 转移：审核通过并移到目标猫名下
+      if (photo.mark == "transfer") {
+        if (!transfer_cat_id) {
+          console.error('[doCheckMulti] - 缺少转移目标猫');
+          new_photos.push(photo);
+          continue;
+        }
+        // 先通过审核，再转移归属；读库校验转移结果（旧版云函数会静默失败）
+        all_queries.push((async () => {
+          await api.managePhoto({
+            type: "check",
+            photo: photo,
+            best: false,
+          });
+          await api.managePhoto({
+            type: "transfer",
+            photo: photo,
+            target_cat_id: transfer_cat_id,
+          });
+          const { result: latest } = await app.mpServerless.db.collection('photo').findOne({
+            _id: photo._id
+          });
+          if (!latest || latest.cat_id !== transfer_cat_id) {
+            throw new Error('transfer not applied: ' + photo._id);
+          }
+        })().then(() => {
+          this.addNotice(photo, true);
+        }).catch(err => {
+          console.error('[doCheckMulti] - 转移失败:', err);
+          new_photos.push(photo); // 转移失败的留在待审列表，不丢失
+          transferFailCount++;
+        }));
         continue;
       }
 
@@ -344,8 +423,16 @@ Page({
       [`campus_counts.${active_campus}`]: newCount,
     });
 
-    wx.showToast({
-      title: '审核通过',
-    });
+    if (transferFailCount > 0) {
+      wx.showModal({
+        title: '部分转移失败',
+        content: transferFailCount + ' 张照片转移未生效（云函数可能未更新，请重新部署后重试），已保留在待审列表中',
+        showCancel: false,
+      });
+    } else {
+      wx.showToast({
+        title: '审核通过',
+      });
+    }
   },
 })
