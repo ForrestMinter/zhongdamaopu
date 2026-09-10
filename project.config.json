@@ -176,7 +176,8 @@
     "ignore": [],
     "include": []
   },
-  "appid": "wx5bd705b2bc91c73b",
+  "appid": "wxead77280cb7cdd7c",
   "projectname": "zhongdamaopu",
-  "libVersion": "2.24.7"
+  "libVersion": "2.24.7",
+  "isGameTourist": false
 }

@@ -8,14 +8,14 @@ module.exports = {
   // 版本号
   app_version: "v1.19.6",
   // 小程序appid
-  app_id: "wx5bd705b2bc91c73b",
+  app_id: "wxead77280cb7cdd7c",
   // EMAS空间ID
-  space_id: "mp-4bc42af8-4abd-490d-85dd-7cb5b9e58f5b",
+  space_id: "mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3",
   // 服务空间 secret key
   space_secret: (() => { try { return require('./appSecret').space_secret; } catch(e) { return ''; } })(),
   // 服务空间地址Api Endpoint
   space_endpoint: "https://api.next.bspapp.com",
-  use_private_tencent_cos: true,
+  use_private_tencent_cos: false,
   // 私有的腾讯云cos签名过期时间（秒）
   sign_expires_tencent_cos: 3600 * 2,
   // 图片选择数量限制
@@ -57,7 +57,7 @@ module.exports = {
   // 各种文字内容
   text: {
     // 小程序名
-    app_name: "笃行猫谱",
+    app_name: "神针猫谱",
     // 首页，pages/genealogy/genealogy
     genealogy: {
       share_tip: "发现身边校园猫咪",
@@ -75,7 +75,7 @@ module.exports = {
     // 关于页，pages/info/info
     info: {
       share_tip: "关于",
-      slogan: "拍照记录校园内猫猫的成长轨迹",
+      slogan: "拍照记录深中猫咪的成长轨迹",
     },
     // 猫猫详情页，pages/genealogy/detailCat/detailCat
     detail_cat: {
@@ -131,7 +131,7 @@ module.exports = {
       ad_success_tip: "多谢喵(ฅ'ω'ฅ)!",
       ad_fail_tip: "没播完喵...",
       reward_tip_title: "投喂罐头",
-      reward_tip: "您的投喂及广告收入将用作猫猫救助，每月的收支都会在“笃行志愿服务队”公众号进行公开，感谢您对中大流浪猫的帮助与支持！\n喵(^･ｪ･^)",
+      reward_tip: "您的投喂及广告收入将用作猫猫救助，每季度的收支都会在“深中校猫墙”小红书号进行公开，感谢您对深中流浪猫的帮助与支持！\n喵(^･ｪ･^)",
       reward_count_tip: "* 每月统计一次，在公众号公示，多谢晒（鞠躬）",
       reward_title: "爱心捐款",
     },
@@ -150,7 +150,7 @@ module.exports = {
       new_cat_tip_title: "新的猫猫",
       new_cat_tip: "提交猫谱中没有的猫猫信息，给猫猫上户口~",
       contract_tip_title: "更多联系",
-      contract_tip: "有关猫猫信息添加、小程序的建议、照片维权、猫猫领养咨询等事项，请关注笃行志愿服务队公众号后留言，或邮件：dxzyfwd@163.com",
+      contract_tip: "有关猫猫信息添加、小程序的建议、照片维权、猫猫领养咨询等事项，请关注深中校猫墙小红书号后留言，或邮件：maoyy25@mail2.sysu.edu.cn",
     },
     // 开发团队页，pages/info/devTeam/devTeam
     dev_team: {
