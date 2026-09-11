@@ -117,13 +117,9 @@ Page({
       // 先请求隐私协议授权
       await this._requestLocationPrivacy();
 
-      const res = await new Promise((resolve, reject) => {
-        wx.getFuzzyLocation({
-          type: 'gcj02',
-          success: resolve,
-          fail: reject
-        });
-      });
+      // 【临时-隐私待生效-BEGIN】
+      throw new Error('privacy pending, fallback to campus center');
+      // 【临时-隐私待生效-END】
       this.setData({
         latitude: res.latitude,
         longitude: res.longitude
@@ -149,7 +145,7 @@ Page({
         success: resolve,
         fail: () => {
           console.log('用户未同意隐私协议');
-          resolve(); // 即使用户拒绝也继续，让 getFuzzyLocation 自己报错
+          resolve(); // 即使用户拒绝也继续，让定位接口自己报错
         }
       });
     });

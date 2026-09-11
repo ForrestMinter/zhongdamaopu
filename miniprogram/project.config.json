@@ -3,7 +3,12 @@
   "compileType": "miniprogram",
   "libVersion": "3.10.1",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "file",
+        "value": "package-lock.json"
+      }
+    ],
     "include": []
   },
   "setting": {

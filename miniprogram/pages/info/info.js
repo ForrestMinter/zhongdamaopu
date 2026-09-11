@@ -97,7 +97,7 @@ Page({
             name: "领养审核",
             path: "/pages/manage/checkAdoption/checkAdoption",
             num: "numChkAdoptions",
-            icon: "icon-home-o"
+            icon: "icon-friends-o"
           },
           {
             name: "喂食设置",

@@ -4,9 +4,18 @@ import { requestNotice, sendVerifyNotice, getMsgTplId } from "../../../utils/msg
 import cache from "../../../utils/cache";
 import { signCosUrl } from "../../../utils/common";
 import { getCatItem } from "../../../utils/cat";
+import { formatDate } from "../../../utils/utils";
 import api from "../../../utils/cloudApi";
 
 const app = getApp();
+
+// 审核记录的操作类型
+const HISTORY_ACTIONS = {
+  pass: { text: '通过', class: 'pass' },
+  best: { text: '精选', class: 'best' },
+  delete: { text: '删除', class: 'delete' },
+  transfer: { text: '转移', class: 'transfer' },
+};
 
 Page({
 
@@ -20,6 +29,13 @@ Page({
     hasPhotos: false,
     // 转移照片：目标猫选择弹窗
     showTransferSelect: false,
+    // 模式：pending 待审核 / history 审核记录（回溯，所有管理员的审核互相可见）
+    mode: 'pending',
+    historyList: [],
+    historyTotal: 0,
+    historyLoading: false,
+    historyNoMore: false,
+    historyInited: false,
   },
 
   jsData: {
@@ -177,6 +193,92 @@ Page({
     if (!this.jsData.loadedCampus[campus]) {
       this.loadCampusPhotos(campus);
     }
+  },
+
+  // 切换 待审核 / 审核记录
+  switchMode(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (mode === this.data.mode) return;
+    this.setData({ mode });
+    if (mode === 'history' && !this.data.historyInited) {
+      this.loadHistory(true);
+    }
+  },
+
+  // 触底加载更多审核记录
+  onReachBottom() {
+    if (this.data.mode === 'history') {
+      this.loadHistory(false);
+    }
+  },
+
+  // 加载审核记录（回溯：所有管理员审核过的内容）
+  async loadHistory(reset) {
+    if (this.data.historyLoading) return;
+    if (!reset && this.data.historyNoMore) return;
+
+    this.setData({ historyLoading: true });
+    try {
+      const skip = reset ? 0 : this.data.historyList.length;
+      const res = await api.managePhoto({
+        type: 'history',
+        skip: skip,
+        limit: 20,
+      });
+
+      if (!res.result) {
+        wx.showToast({ title: res.msg || '加载失败', icon: 'none' });
+        this.setData({ historyLoading: false });
+        return;
+      }
+
+      const list = res.data.list || [];
+
+      // 并行获取猫信息（含转移目标猫）
+      const catIds = [...new Set(list.map(p => p.cat_id).filter(Boolean))];
+      const catCache = {};
+      await Promise.all(catIds.map(async id => {
+        catCache[id] = await getCatItem(id);
+      }));
+
+      // 签名缩略图
+      await Promise.all(list.map(async p => {
+        if (p.thumb) {
+          try { p.thumb = await signCosUrl(p.thumb); } catch (e) { /* 已删除的图片签名失败，显示占位 */ }
+        }
+        const cat = catCache[p.cat_id] || {};
+        p.cat_name = cat.name || '未知猫猫';
+        const act = HISTORY_ACTIONS[p.action] || { text: p.action, class: '' };
+        p.action_text = act.text;
+        p.action_class = act.class;
+        p.check_time_formatted = p.check_time ? formatDate(p.check_time, 'yyyy-MM-dd hh:mm') : '';
+      }));
+
+      // 填充审核人、上传者昵称
+      await fillUserInfo(list, 'manager_openid', 'managerInfo');
+      await fillUserInfo(list, 'uploader_openid', 'uploaderInfo');
+
+      const newList = reset ? list : this.data.historyList.concat(list);
+      this.setData({
+        historyList: newList,
+        historyTotal: res.data.total || 0,
+        historyLoading: false,
+        historyInited: true,
+        historyNoMore: newList.length >= (res.data.total || 0),
+      });
+    } catch (err) {
+      console.error('[loadHistory] - 加载审核记录失败:', err);
+      wx.showToast({ title: '网络错误', icon: 'none' });
+      this.setData({ historyLoading: false });
+    }
+  },
+
+  // 审核记录中的图片加载失败（如已删除的照片）
+  onHistoryImgError(e) {
+    const index = e.currentTarget.dataset.index;
+    this.setData({
+      [`historyList[${index}].imgError`]: true,
+    });
   },
 
   async requestSubscribeMessage() {

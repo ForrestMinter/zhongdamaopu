@@ -6,7 +6,7 @@
 
 module.exports = {
   // 版本号
-  app_version: "v1.19.6",
+  app_version: "v1.1.1",
   // 小程序appid
   app_id: "wxead77280cb7cdd7c",
   // EMAS空间ID
@@ -38,7 +38,7 @@ module.exports = {
   ],
 
   // 赞赏码图片
-  reward_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/赞赏码.jpg`,
+  reward_img: `/pages/public/images/reward_qr.jpg`,
   // 新猫问卷图片
   feedback_wj_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/新猫问卷.png`,
   // 小程序菊花码图片
@@ -131,8 +131,8 @@ module.exports = {
       ad_success_tip: "多谢喵(ฅ'ω'ฅ)!",
       ad_fail_tip: "没播完喵...",
       reward_tip_title: "投喂罐头",
-      reward_tip: "您的投喂及广告收入将用作猫猫救助，每季度的收支都会在“深中校猫墙”小红书号进行公开，感谢您对深中流浪猫的帮助与支持！\n喵(^･ｪ･^)",
-      reward_count_tip: "* 每月统计一次，在公众号公示，多谢晒（鞠躬）",
+      reward_tip: "打赏的80%将用于校园流浪猫救助，20%用于维护小程序服务器。每季度的收支都会在“深中校猫墙”小红书号进行公开，感谢您对深中流浪猫的帮助与支持！\n喵(^･ｪ･^)",
+      reward_count_tip: "* 每季度统计一次，在「深中校猫墙」小红书号公示，多谢晒（鞠躬）",
       reward_title: "爱心捐款",
     },
     // 排行页，pages/info/photoRank/photoRank
@@ -155,7 +155,7 @@ module.exports = {
     // 开发团队页，pages/info/devTeam/devTeam
     dev_team: {
       share_tip: "开发团队",
-      team: "程序开发：渔政、蓝卷、XD、zJ、ArcherJo、yw、lauzeyu、xuannfx、LightHouse-1024\n资料维护：Lo\n初期资料整理：hehe、玥琪、大米\n以及各校区猫群的小伙伴~\n非常欢迎新朋友加入设计开发哇~！",
+      team: "程序开发：森荷、渔政、蓝卷、XD、zJ、ArcherJo、yw、lauzeyu、xuannfx、LightHouse-1024\n资料维护：碳酸\n初期资料整理：碳酸、花汀、KK\n以及各校区的小伙伴~\n非常欢迎新朋友加入设计开发哇~！",
     },
     // 识猫页，pages/recognize/recognize
     recognize: {
