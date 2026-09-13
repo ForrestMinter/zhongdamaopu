@@ -18,7 +18,7 @@
       <view class="tier-row">
         <view class="tier-cell {{t.unlocked ? 'unlocked' : ''}}" wx:for="{{item.tiers}}" wx:for-item="t" wx:key="key">
           <view class="medal" style="{{t.unlocked ? 'background:' + t.tierColor + ';' : ''}}">
-            <text class="medal-text">{{t.tierName[0]}}</text>
+            <text class="medal-text">{{t.tierShort}}</text>
           </view>
           <view class="tier-threshold">{{t.threshold}}{{item.unit}}</view>
           <view class="tier-time" wx:if="{{t.unlocked}}">{{t.unlock_time_text}}</view>

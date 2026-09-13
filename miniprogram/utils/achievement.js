@@ -8,9 +8,9 @@ const app = getApp();
 
 // 级别定义
 const TIERS = [
-  { tier: 1, name: '铜牌', color: '#c88a4b' },
-  { tier: 2, name: '银牌', color: '#9aa5b1' },
-  { tier: 3, name: '金牌', color: '#e6a823' },
+  { tier: 1, name: '铜牌', short: '铜', color: '#c88a4b' },
+  { tier: 2, name: '银牌', short: '银', color: '#9aa5b1' },
+  { tier: 3, name: '金牌', short: '金', color: '#e6a823' },
 ];
 
 // 成就类目（顺序即展示顺序），tiers 为铜/银/金的数量门槛
@@ -48,6 +48,7 @@ function _defOfKey(key) {
     threshold,
     tier: tierIdx + 1,
     tierName: TIERS[tierIdx].name,
+    tierShort: TIERS[tierIdx].short,
     tierColor: TIERS[tierIdx].color,
     name: `${cat.name}·${TIERS[tierIdx].name}`,
     desc: cat.desc.replace('{}', threshold),
@@ -242,6 +243,7 @@ async function getMyAchievements() {
         key: key,
         tier: i + 1,
         tierName: TIERS[i].name,
+        tierShort: TIERS[i].short,
         tierColor: TIERS[i].color,
         threshold: threshold,
         desc: cat.desc.replace('{}', threshold),
@@ -278,11 +280,11 @@ async function getUnlockedList() {
 async function getShowcase(openid) {
   try {
     const { result: user } = await app.mpServerless.db.collection('user').findOne({ openid: openid });
-    const keys = (user && user.showcase_achievements) || [];
-    return keys.map(k => _defOfKey(k)).filter(Boolean);
+    if (!user || !user.showcase_achievements) return null;
+    return user.showcase_achievements.map(k => _defOfKey(k)).filter(Boolean);
   } catch (e) {
     console.log('读取展示位失败', e);
-    return [];
+    return null;
   }
 }
 

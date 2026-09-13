@@ -42,7 +42,7 @@
       <view class="showcase-name">{{item.name}}</view>
     </view>
   </view>
-  <view class="showcase-empty" wx:else>还没有展示成就，点这里选择（需先解锁成就）</view>
+  <view class="showcase-empty" wx:else>未设置展示成就，点这里选择</view>
 </view>
 
 <view class="menu-container">
@@ -66,7 +66,7 @@
 <!-- 成就展示位选择器 -->
 <view class="achv-picker-mask" wx:if="{{showAchvPicker}}" bindtap="closeAchvPicker">
   <view class="achv-picker" catchtap="noop">
-    <view class="achv-picker-title">选择要展示的成就（最多3个）</view>
+    <view class="achv-picker-title">选择要展示的成就（最多3个，全部取消则不展示）</view>
     <scroll-view scroll-y="1" class="achv-picker-list">
       <view class="achv-pick-item {{item.selected ? 'selected' : ''}}" wx:for="{{unlockedAchv}}" wx:key="key" bindtap="toggleAchvPick" data-key="{{item.key}}">
         <view class="showcase-medal small" style="background: {{item.tierColor}};">{{item.icon}}</view>

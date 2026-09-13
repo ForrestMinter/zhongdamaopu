@@ -142,12 +142,12 @@ Page({
     this.loadShowcase();
   },
 
-  // 加载成就展示位：优先用户自选的3个，否则默认展示最新解锁的3个
+  // 加载成就展示位：设置过就按自选（全不选=不展示）；从未设置过则默认推荐最新解锁的3个
   async loadShowcase() {
     try {
       const openid = this.data.user.openid;
       let showcase = await getShowcase(openid);
-      if (showcase.length === 0) {
+      if (showcase === null) {
         const unlocked = await getUnlockedList();
         showcase = unlocked.slice(-3).reverse();
       }
