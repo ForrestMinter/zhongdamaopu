@@ -22,9 +22,8 @@ Page({
     cards: [
       {
         icon: "/pages/public/images/info/btn/dashboard.svg",
-        label: "详细数据看板",
-        path: "/pages/info/dashboard/dashboard",
-        css: "long"
+        label: "数据看板",
+        path: "/pages/info/dashboard/dashboard"
       }, {
         icon: "/pages/public/images/info/btn/user.svg",
         label: "个人主页",
@@ -33,6 +32,10 @@ Page({
         icon: "/pages/public/images/info/btn/badge.svg",
         label: "徽章口袋",
         path: "/pages/packageA/pages/info/badge/badge",
+      }, {
+        icon: "/pages/public/images/info/btn/paw_print.png",
+        label: "我的成就",
+        path: "/pages/info/myAchievement/myAchievement",
       }, {
         icon: "/pages/public/images/info/btn/team.svg",
         label: "开发团队",
@@ -94,6 +97,11 @@ Page({
             path: "/pages/manage/checkAdoption/checkAdoption",
             num: "numChkAdoptions",
             icon: "icon-friends-o"
+          },
+          {
+            name: "喂食设置",
+            path: "/pages/manage/feedSettings/feedSettings",
+            icon: "icon-balance-o"
           },
           {
             name: "便利贴审核",

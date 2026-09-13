@@ -29,6 +29,7 @@ import { showMpcode } from "../../../utils/mpcode";
 import { signCosUrl } from "../../../utils/common";
 import api from "../../../utils/cloudApi";
 import { isDemoMode, getDemoCat } from "../../../utils/demo";
+import { trackViewCat, trackFollow } from "../../../utils/achievement";
 
 const app = getApp();
 
@@ -104,6 +105,8 @@ Page({
       other: '其他',
     },
 
+    // 喂食统计
+    feedStats: null,
   },
 
   jsData: {
@@ -150,6 +153,9 @@ Page({
     // 记录访问时间，消除"有新相片"
     // TODO：用cache
     setVisitedDate(this.jsData.cat_id);
+
+    // 成就：浏览猫猫
+    trackViewCat(this.jsData.cat_id);
   },
 
   /**
@@ -279,6 +285,7 @@ Page({
       this.reloadCatBadge(),
       this.getLatestVaccine(cat._id),
       this.getMedicalTimeline(cat._id),
+      this.getFeedStats(cat._id),
     ]);
 
     var query = wx.createSelectorQuery();
@@ -939,6 +946,11 @@ Page({
       icon: res ? "success" : "error"
     });
     this.jsData.updatingFollowCats = false;
+
+    // 成就：关注猫猫
+    if (res && !followedCat) {
+      trackFollow((this.data.user.followCats || []).length);
+    }
   },
 
   // 获取最新疫苗记录（疫苗已并入医疗记录，从 medical 集合按 type=vaccine 读取）
@@ -1055,6 +1067,36 @@ Page({
   toMedicalManage() {
     wx.navigateTo({
       url: '/pages/manage/medicalManage/medicalManage?cat_id=' + this.jsData.cat_id,
+    });
+  },
+
+  // 获取喂食统计
+  async getFeedStats(cat_id) {
+    try {
+      const result = await api.feedOp({
+        operation: 'statsByCat',
+        cat_id: cat_id
+      });
+      if (result?.result === true && result.data) {
+        this.setData({ feedStats: result.data });
+      }
+    } catch (error) {
+      console.error('获取喂食统计失败:', error);
+    }
+  },
+
+  // 跳转喂食/零食打卡页
+  toFeedRecord(e) {
+    const category = (e && e.currentTarget && e.currentTarget.dataset.category) || 'meal';
+    wx.navigateTo({
+      url: '/pages/feed/feedRecord/feedRecord?cat_id=' + this.jsData.cat_id + '&category=' + category,
+    });
+  },
+
+  // 跳转分地区打卡主页
+  toFeedHub() {
+    wx.navigateTo({
+      url: '/pages/feed/feedHub/feedHub',
     });
   },
 
