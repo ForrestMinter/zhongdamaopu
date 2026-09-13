@@ -21,13 +21,13 @@ Page({
     // 卡片，不需要设计绘制卡片图，只需用放图标即可
     cards: [
       {
-        icon: "/pages/public/images/info/btn/dashboard.svg",
-        label: "数据看板",
-        path: "/pages/info/dashboard/dashboard"
-      }, {
         icon: "/pages/public/images/info/btn/user.svg",
         label: "个人主页",
         path: "/pages/info/userInfo/userInfo",
+      }, {
+        icon: "/pages/public/images/info/btn/dashboard.svg",
+        label: "数据看板",
+        path: "/pages/info/dashboard/dashboard"
       }, {
         icon: "/pages/public/images/info/btn/badge.svg",
         label: "徽章口袋",
