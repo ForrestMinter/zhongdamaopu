@@ -258,17 +258,6 @@ async function medicalOp(options) {
   })).result
 }
 
-// 喂食打卡相关操作
-async function feedOp(options) {
-  const app = getApp();
-  const openid = await getCurrentUserOpenid();
-  return (await app.mpServerless.function.invoke('unionOp', {
-    ...options,
-    openid: openid,
-    unionAction: "feedOp",
-  })).result
-}
-
 // 更新猫的关系
 async function catRelationOp(options) {
   const app = getApp();
@@ -363,7 +352,6 @@ module.exports = {
   vaccineOp,
   adoptionOp,
   medicalOp,
-  feedOp,
   catRelationOp,
   manageRelationRules,
   initVaccineTypes,

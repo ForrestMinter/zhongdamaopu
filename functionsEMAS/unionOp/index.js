@@ -27,7 +27,6 @@ const getCatLocationsHandler = require('./getCatLocations.js')
 const getCatTrajectoryHandler = require('./getCatTrajectory.js')
 const adoptionOpHandler = require('./adoptionOp.js')
 const medicalOpHandler = require('./medicalOp.js')
-const feedOpHandler = require('./feedOp.js')
 
 const actionMap = {
     curdOp: curdOpHandler,
@@ -59,7 +58,6 @@ const actionMap = {
     getCatTrajectory: getCatTrajectoryHandler,
     adoptionOp: adoptionOpHandler,
     medicalOp: medicalOpHandler,
-    feedOp: feedOpHandler,
 }
 
 module.exports = async (ctx) => {

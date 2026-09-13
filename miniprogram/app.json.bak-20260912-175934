@@ -34,7 +34,8 @@
         "badgeCode/addBadgeCode/addBadgeCode",
         "catManage/catManage",
         "checkAdoption/checkAdoption",
-        "medicalManage/medicalManage"
+        "medicalManage/medicalManage",
+        "feedSettings/feedSettings"
       ]
     },
     {
@@ -50,6 +51,13 @@
       "pages": [
         "updateUserRole/updateUserRole",
         "inviteUser/inviteUser"
+      ]
+    },
+    {
+      "root": "pages/feed",
+      "pages": [
+        "feedRecord/feedRecord",
+        "feedHub/feedHub"
       ]
     },
     {
@@ -77,6 +85,12 @@
       "root": "pages/genealogy/commentBoard",
       "pages": [
         "commentBoard"
+      ]
+    },
+    {
+      "root": "pages/genealogy/photoComment",
+      "pages": [
+        "photoComment"
       ]
     },
     {
@@ -144,6 +158,12 @@
       "root": "pages/info/myFootprint",
       "pages": [
         "myFootprint"
+      ]
+    },
+    {
+      "root": "pages/info/myAchievement",
+      "pages": [
+        "myAchievement"
       ]
     },
     {

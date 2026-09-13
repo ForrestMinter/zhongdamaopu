@@ -40,7 +40,7 @@ module.exports = {
   // 赞赏码图片
   reward_img: `/pages/public/images/reward_qr.jpg`,
   // 新猫问卷图片
-  feedback_wj_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/新猫问卷.png`,
+  feedback_wj_img: `/pages/public/images/new_cat_qr.jpg`,
   // 小程序菊花码图片
   mpcode_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/菊花码.jpg`,
 

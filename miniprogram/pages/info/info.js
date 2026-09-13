@@ -30,10 +30,6 @@ Page({
         label: "个人主页",
         path: "/pages/info/userInfo/userInfo",
       }, {
-        icon: "/pages/public/images/info/btn/reward.svg",
-        label: "喂食打卡",
-        path: "/pages/feed/feedHub/feedHub",
-      }, {
         icon: "/pages/public/images/info/btn/badge.svg",
         label: "徽章口袋",
         path: "/pages/packageA/pages/info/badge/badge",
@@ -98,11 +94,6 @@ Page({
             path: "/pages/manage/checkAdoption/checkAdoption",
             num: "numChkAdoptions",
             icon: "icon-friends-o"
-          },
-          {
-            name: "喂食设置",
-            path: "/pages/manage/feedSettings/feedSettings",
-            icon: "icon-balance-o"
           },
           {
             name: "便利贴审核",

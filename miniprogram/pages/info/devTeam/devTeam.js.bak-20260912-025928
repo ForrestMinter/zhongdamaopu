@@ -10,16 +10,6 @@ Page({
     text_cfg: text_cfg,
     github_link: "https://github.com/sysucats/zhongdamaopu",
     update_log: [{
-      version: "v1.1.0",
-      content: [
-        "喵友圈可以点赞、留言互动啦",
-        "照片新增评论区，可以给喜欢的照片留言讨论",
-        "喵地图新增猫咪常出没地点标记",
-        "新增成就系统：铜银金三级，互动即可升级",
-        "个人主页可展示3个成就，榜单新增成就排行",
-      ],
-      time: "2026/9/12"
-    }, {
       version: "v1.0.0",
       content: [
         "内测版上线",

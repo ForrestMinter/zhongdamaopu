@@ -62,7 +62,7 @@
 
     <!-- 领养横幅：寻找领养中时展示 -->
     <view class="adopt-banner" wx:if="{{cat.adopt === 2}}" bindtap="toApplyAdoption">
-      <view class="adopt-banner-icon iconfont icon-home-o"></view>
+      <view class="adopt-banner-icon iconfont icon-friends-o"></view>
       <view class="adopt-banner-text">我正在寻找一个新家，点击申请领养</view>
       <view class="adopt-banner-arrow">→</view>
     </view>
@@ -195,28 +195,6 @@
         </view>
       </view>
 
-      <!-- 喂食动态 -->
-      <view class="card" wx:if="{{feedStats}}">
-        <view class="card-header">
-          <view class="card-title">
-            <view class="iconfont icon-balance-o"></view>
-            喂食动态
-          </view>
-          <view class="badge-all" bindtap="toFeedRecord">打卡</view>
-        </view>
-
-        <view class='item long'>
-          <view class="latest-vaccine">
-            <view class='value vaccine-info'>
-              <text>共打卡 {{feedStats.total}} 次</text>
-              <text>近7天 {{feedStats.last7d}} 次 · 近30天 {{feedStats.last30d}} 次</text>
-            </view>
-          </view>
-        </view>
-        <view class='item long' bindtap="toFeedHub">
-          <view class='value' style="color:#576b95;font-size:26rpx;">按地区查看今日打卡情况 →</view>
-        </view>
-      </view>
 
       <!-- 徽章口袋 --> 
       <view class="card" wx:if="{{showBadge}}">
@@ -340,10 +318,6 @@
       <view class="button" bindtap='followCat'>
         <image class="icon {{followedCat ? 'gray' : ''}}" src='/pages/public/images/button/follow.svg'></image>
         <view class="button-text">{{followedCat ? "取消关注" : "关注动态"}}</view>
-      </view>
-      <view class="button" bindtap='toFeedRecord'>
-        <image class="icon" src='/pages/public/images/button/heart.png'></image>
-        <view class="button-text">喂食打卡</view>
       </view>
       <view class="button" bindtap='bindTapFeedback'>
         <image class="icon" src='/pages/public/images/button/flag.svg'></image>
