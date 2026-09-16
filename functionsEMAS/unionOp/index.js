@@ -5,7 +5,6 @@ const commentCheckHandler = require('./commentCheck.js')
 const genBadgeCodeHandler = require('./genBadgeCode.js')
 const userOpHandler = require('./userOp.js')
 const sendMsgV2Handler = require('./sendMsgV2.js')
-const getMpCodeHandler = require('./getMpCode.js')
 const managePhotoHandler = require('./managePhoto.js')
 const updateCatHandler = require('./updateCat.js')
 const getBadgeHandler = require('./getBadge.js')
@@ -38,7 +37,6 @@ const actionMap = {
     genBadgeCode: genBadgeCodeHandler,
     userOp: userOpHandler,
     sendMsgV2: sendMsgV2Handler,
-    getMpCode: getMpCodeHandler,
     managePhoto: managePhotoHandler,
     updateCat: updateCatHandler,
     getBadge: getBadgeHandler,
