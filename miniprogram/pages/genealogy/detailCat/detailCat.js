@@ -25,7 +25,6 @@ import {
   getGlobalSettings
 } from "../../../utils/page";
 import { convertRatingList, genDefaultRating } from "../../../utils/rating";
-import { showMpcode } from "../../../utils/mpcode";
 import { signCosUrl } from "../../../utils/common";
 import api from "../../../utils/cloudApi";
 import { isDemoMode, getDemoCat } from "../../../utils/demo";
@@ -657,11 +656,6 @@ Page({
     }
   },
 
-  // 展示mpcode
-  async bingMpTap() {
-    await showMpcode(this.data.cat);
-  },
-
   showPopTip(e) {
     let { tip } = e.currentTarget.dataset;
     wx.showToast({
@@ -901,16 +895,6 @@ Page({
     this.setData({
       showDetailRating: !showDetailRating,
     });
-  },
-
-  // 展示分享海报
-  async showPoster() {
-    // 关掉弹窗
-    this.closeFunction();
-    let posterComponent = this.selectComponent('#posterComponent');
-    if (posterComponent) {
-      posterComponent.startDrawing();
-    }
   },
 
   async followCat() {

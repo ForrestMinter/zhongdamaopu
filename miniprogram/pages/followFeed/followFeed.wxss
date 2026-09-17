@@ -168,12 +168,6 @@ swiper-item image {
   color: white;
 }
 
-.tags .mpcode {
-  font-size: 40rpx;
-  margin-left: auto;
-  color: var(--color-primary);
-}
-
 .fb-button, .badge-all {
   font-size: 20rpx;
   font-weight: 500;
