@@ -143,7 +143,7 @@ swiper-item image {
 .tags {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .tags .tag {
@@ -161,12 +161,6 @@ swiper-item image {
 .tags .to_star {
   background-color: var(--color-gray-max);
   color: white;
-}
-
-.tags .mpcode {
-  font-size: 40rpx;
-  margin-left: auto;
-  color: var(--color-primary);
 }
 
 .fb-button, .badge-all {
