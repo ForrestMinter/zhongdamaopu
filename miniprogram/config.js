@@ -30,11 +30,11 @@ module.exports = {
 
   // 科普页图片
   science_imgs: [
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普1.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普2.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普3.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普4.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普5.png`
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普1.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普2.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普3.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普4.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普5.png`
   ],
 
   // 赞赏码图片
@@ -42,12 +42,12 @@ module.exports = {
   // 新猫问卷图片
   feedback_wj_img: `/pages/public/images/new_cat_qr.jpg`,
   // 小程序菊花码图片
-  mpcode_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/菊花码.jpg`,
+  mpcode_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/菊花码.jpg`,
 
   // 徽章排行榜的数量榜logo
-  badge_rank_count_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/badge_rank_count.png`,
+  badge_rank_count_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/badge_rank_count.png`,
   // 徽章排行榜的价值榜logo
-  badge_rank_score_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/badge_rank_score.png`,
+  badge_rank_score_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/badge_rank_score.png`,
 
   // 猫猫领养状态字符串，对应数据库cat.adopt中的数字下标
   cat_status_adopt: ["未领养", "已领养", "寻找领养中"],
@@ -153,7 +153,7 @@ module.exports = {
     // 开发团队页，pages/info/devTeam/devTeam
     dev_team: {
       share_tip: "开发团队",
-      team: "程序开发：森荷、渔政、蓝卷、XD、zJ、ArcherJo、yw、lauzeyu、xuannfx、LightHouse-1024\n资料维护：碳酸\n初期资料整理：碳酸、花汀、KK\n以及各校区的小伙伴~\n非常欢迎新朋友加入设计开发哇~！",
+      team: "程序开发：森荷、渔政、蓝卷、XD、zJ、ArcherJo、yw、lauzeyu、xuannfx、LightHouse-1024、买饭啦\n资料维护：碳酸\n初期资料整理：碳酸、花汀、KK\n以及各校区的小伙伴~\n非常欢迎新朋友加入设计开发哇~！",
     },
     // 识猫页，pages/recognize/recognize
     recognize: {

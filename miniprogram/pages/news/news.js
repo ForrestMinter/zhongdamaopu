@@ -193,7 +193,7 @@ Page({
 
   async setSciImgs() {
     const sciImgList = await Promise.all(science_imgs.map(val => signCosUrl(val)));;
-    const cacheKey = 'sciImgStorage';
+    const cacheKey = 'sciImgStorage_v2';  // v2: 旧缓存为占位图，弃用
     const dataKey = 'images';
 
     const fileSystem = wx.getFileSystemManager();
