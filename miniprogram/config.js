@@ -30,24 +30,22 @@ module.exports = {
 
   // 科普页图片
   science_imgs: [
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普1.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普2.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普3.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普4.png`,
-    `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/科普5.png`
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普1.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普2.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普3.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普4.png`,
+    `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/科普5.png`
   ],
 
-  // 赞赏码图片
-  reward_img: `/pages/public/images/reward_qr.jpg`,
   // 新猫问卷图片
   feedback_wj_img: `/pages/public/images/new_cat_qr.jpg`,
   // 小程序菊花码图片
-  mpcode_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/菊花码.jpg`,
+  mpcode_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/菊花码.jpg`,
 
   // 徽章排行榜的数量榜logo
-  badge_rank_count_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/badge_rank_count.png`,
+  badge_rank_count_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/badge_rank_count.png`,
   // 徽章排行榜的价值榜logo
-  badge_rank_score_img: `https://cos.ap-guangzhou.myqcloud.com/maopu-1251740905/系统/badge_rank_score.png`,
+  badge_rank_score_img: `https://mp-993425d9-5c6b-491b-9a22-aed9d1cc5cf3.cdn.bspapp.com/系统/badge_rank_score.png`,
 
   // 猫猫领养状态字符串，对应数据库cat.adopt中的数字下标
   cat_status_adopt: ["未领养", "已领养", "寻找领养中"],
@@ -123,15 +121,15 @@ module.exports = {
       unfinished_tip_title: "提示",
       unfinished_tip_content: "填写信息后再上传哦！",
     },
-    // 赞赏页，pages/info/reward/reward
+    // 投喂页，pages/info/reward/reward（仅激励广告，无收款码）
     reward: {
       share_tip: "投喂罐头",
       ad_success_tip: "多谢喵(ฅ'ω'ฅ)!",
       ad_fail_tip: "没播完喵...",
+      ad_not_ready_tip: "广告位准备中，先去撸猫吧喵~",
       reward_tip_title: "投喂罐头",
-      reward_tip: "打赏的80%将用于校园流浪猫救助，20%用于维护小程序服务器。每季度的收支都会在“深中校猫墙”小红书号进行公开，感谢您对深中流浪猫的帮助与支持！\n喵(^･ｪ･^)",
+      reward_tip: "观看广告就能请猫猫吃罐头！广告收益将全部用于校园流浪猫救助和小程序维护，每季度的收支都会在“深中校猫墙”小红书号进行公开，感谢您对深中流浪猫的帮助与支持！\n喵(^･ｪ･^)",
       reward_count_tip: "* 每季度统计一次，在「深中校猫墙」小红书号公示，多谢晒（鞠躬）",
-      reward_title: "爱心捐款",
     },
     // 排行页，pages/info/photoRank/photoRank
     photo_rank: {

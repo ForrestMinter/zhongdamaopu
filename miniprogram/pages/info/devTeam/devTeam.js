@@ -10,6 +10,17 @@ Page({
     text_cfg: text_cfg,
     github_link: "https://github.com/sysucats/zhongdamaopu",
     update_log: [{
+      version: "v1.1.10",
+      content: [
+        "神针猫谱正式版上线",
+        "成就展示支持自选，可全部取消展示",
+        "个人主页数据看板样式优化",
+        "徽章收集榜、拍照月榜改为每日0点更新",
+        "修复科普轮播图不显示、详情页标签错位",
+        "移除喵ID二维码分享功能",
+      ],
+      time: "2026/9/18"
+    }, {
       version: "v1.1.0",
       content: [
         "喵友圈可以点赞、留言互动啦",
